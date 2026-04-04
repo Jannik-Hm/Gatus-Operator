@@ -6,6 +6,8 @@ cliVersion: 4.13.1
 domain: gatus.io
 layout:
 - go.kubebuilder.io/v4
+plugins:
+  autoupdate.kubebuilder.io/v1-alpha: {}
 projectName: projects
 repo: github.com/Jannik-Hm/Gatus-Operator
 resources:
