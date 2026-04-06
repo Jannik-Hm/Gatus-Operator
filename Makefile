@@ -65,7 +65,7 @@ test: manifests generate fmt vet setup-envtest ## Run tests.
 # The default setup assumes Kind is pre-installed and builds/loads the Manager Docker image locally.
 # CertManager is installed by default; skip with:
 # - CERT_MANAGER_INSTALL_SKIP=true
-KIND_CLUSTER ?= projects-test-e2e
+KIND_CLUSTER ?= gatus-test-e2e
 
 .PHONY: setup-test-e2e
 setup-test-e2e: ## Set up a Kind cluster for e2e tests if it does not exist
@@ -134,10 +134,10 @@ PLATFORMS ?= linux/arm64,linux/amd64,linux/s390x,linux/ppc64le
 docker-buildx: ## Build and push docker image for the manager for cross-platform support
 	# copy existing Dockerfile and insert --platform=${BUILDPLATFORM} into Dockerfile.cross, and preserve the original Dockerfile
 	sed -e '1 s/\(^FROM\)/FROM --platform=\$$\{BUILDPLATFORM\}/; t' -e ' 1,// s//FROM --platform=\$$\{BUILDPLATFORM\}/' Dockerfile > Dockerfile.cross
-	- $(CONTAINER_TOOL) buildx create --name projects-builder
-	$(CONTAINER_TOOL) buildx use projects-builder
+	- $(CONTAINER_TOOL) buildx create --name gatus-builder
+	$(CONTAINER_TOOL) buildx use gatus-builder
 	- $(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) --tag ${IMG} -f Dockerfile.cross .
-	- $(CONTAINER_TOOL) buildx rm projects-builder
+	- $(CONTAINER_TOOL) buildx rm gatus-builder
 	rm Dockerfile.cross
 
 .PHONY: build-installer
@@ -253,3 +253,18 @@ endef
 define gomodver
 $(shell go list -m -f '{{if .Replace}}{{.Replace.Version}}{{else}}{{.Version}}{{end}}' $(1) 2>/dev/null)
 endef
+
+.PHONY: create-cluster
+create-cluster:
+	@kind create cluster --config hack/kind-config.yaml --name gatus-operator
+	@echo ""
+	@hack/kind-cluster-setup.sh kind-gatus-operator
+
+.PHONY: delete-cluster
+delete-cluster:
+	kind delete cluster --name gatus-operator
+
+copy-podman-image:
+	@podman save -o gatus.tar $(IMG)
+	@kind load image-archive gatus.tar --name gatus-operator
+	@rm gatus.tar
