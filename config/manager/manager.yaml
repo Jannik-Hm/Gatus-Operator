@@ -64,6 +64,10 @@ spec:
           - --leader-elect
           - --health-probe-bind-address=:8081
         image: controller:latest
+        imagePullPolicy: IfNotPresent # to tell kind to prefer locally available image
+        env: # env vars for config
+          - name: DEFAULT_GATUS_IMAGE
+            value: ghcr.io/twin/gatus:stable
         name: manager
         ports: []
         securityContext:
