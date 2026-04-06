@@ -4,7 +4,7 @@ It is purely community maintained.
 
 ## Description
 This Operator aims to simplify Gatus Deployment and Management.
-It aims to extend the behavior of Gatus Sidecar by implementing CRDs for e.g. announcements
+It aims to exceed capabilities of Gatus Sidecar e.g. by implementing CRDs for announcements
 
 ## Getting Started
 
