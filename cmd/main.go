@@ -36,7 +36,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	gatusiov1alpha1 "github.com/Jannik-Hm/Gatus-Operator/api/v1alpha1"
+	"github.com/Jannik-Hm/Gatus-Operator/internal/config"
 	"github.com/Jannik-Hm/Gatus-Operator/internal/controller"
+	webhookv1alpha1 "github.com/Jannik-Hm/Gatus-Operator/internal/webhook/v1alpha1"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -86,6 +88,13 @@ func main() {
 	flag.Parse()
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+
+	// load custom app config
+	appConfig, err := config.Load()
+	if err != nil {
+		setupLog.Error(err, "unable to load environment configuration")
+		os.Exit(1)
+	}
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
 	// due to its vulnerabilities. More specifically, disabling http/2 will
@@ -181,9 +190,17 @@ func main() {
 	if err := (&controller.InstanceReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
+		Config: appConfig,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "Instance")
 		os.Exit(1)
+	}
+	// nolint:goconst
+	if os.Getenv("ENABLE_WEBHOOKS") != "false" {
+		if err := webhookv1alpha1.SetupInstanceWebhookWithManager(mgr, appConfig); err != nil {
+			setupLog.Error(err, "Failed to create webhook", "webhook", "Instance")
+			os.Exit(1)
+		}
 	}
 	// +kubebuilder:scaffold:builder
 
