@@ -30,9 +30,24 @@ type InstanceSpec struct {
 	// The following markers will use OpenAPI v3 schema to validate the value
 	// More info: https://book.kubebuilder.io/reference/markers/crd-validation.html
 
-	// foo is an example field of Instance. Edit instance_types.go to remove/update
+	// Name of the Gatus Instance (should be unique) and is used for reference when e.g. creating announcements, monitors, etc.
+	// +required
+	Name string `json:"name"`
+
+	// Name of the Service created, defaults to instance name
 	// +optional
-	Foo *string `json:"foo,omitempty"`
+	ServiceName *string `json:"serviceName,omitempty"`
+
+	// Number of Gatus Instance Replicas, defaults to 1
+	// +kubebuilder:default:=1
+	// +kubebuilder:validation:Minimum=0
+	// +optional
+	Replicas *int32 `json:"replicas,omitempty"`
+
+	// Image to be used
+	// +kubebuilder:validation:Pattern=`^([\w\.\-\/]+)(:[\w\.\-]+)?(@sha256:[a-fA-F0-0]{64})?$`
+	// +optional
+	Image *string `json:"image,omitempty"`
 }
 
 // InstanceStatus defines the observed state of Instance.
@@ -56,6 +71,14 @@ type InstanceStatus struct {
 	// +listMapKey=type
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+	// Corresponding Deployment Name
+	// +optional
+	DeploymentName *string `json:"deploymentName,omitempty"`
+
+	// Current Replicas
+	// +kubebuilder:default:=0
+	Replicas int32 `json:"Replicas,omitempty"`
 }
 
 // +kubebuilder:object:root=true

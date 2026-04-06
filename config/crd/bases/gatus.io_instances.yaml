@@ -39,14 +39,34 @@ spec:
           spec:
             description: spec defines the desired state of Instance
             properties:
-              foo:
-                description: foo is an example field of Instance. Edit instance_types.go
-                  to remove/update
+              image:
+                description: Image to be used
+                pattern: ^([\w\.\-\/]+)(:[\w\.\-]+)?(@sha256:[a-fA-F0-0]{64})?$
                 type: string
+              name:
+                description: Name of the Gatus Instance (should be unique) and is
+                  used for reference when e.g. creating announcements, monitors, etc.
+                type: string
+              replicas:
+                default: 1
+                description: Number of Gatus Instance Replicas, defaults to 1
+                format: int32
+                minimum: 0
+                type: integer
+              serviceName:
+                description: Name of the Service created, defaults to instance name
+                type: string
+            required:
+            - name
             type: object
           status:
             description: status defines the observed state of Instance
             properties:
+              Replicas:
+                default: 0
+                description: Current Replicas
+                format: int32
+                type: integer
               conditions:
                 description: |-
                   conditions represent the current state of the Instance resource.
@@ -116,6 +136,9 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              deploymentName:
+                description: Corresponding Deployment Name
+                type: string
             type: object
         required:
         - spec

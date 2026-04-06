@@ -28,6 +28,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	gatusiov1alpha1 "github.com/Jannik-Hm/Gatus-Operator/api/v1alpha1"
+	"github.com/Jannik-Hm/Gatus-Operator/internal/config"
 )
 
 var _ = Describe("Instance Controller", func() {
@@ -71,6 +72,9 @@ var _ = Describe("Instance Controller", func() {
 			controllerReconciler := &InstanceReconciler{
 				Client: k8sClient,
 				Scheme: k8sClient.Scheme(),
+				Config: &config.Config{
+					DefaultGatusImage: "ghcr.io/twin/gatus:stable",
+				},
 			}
 
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
