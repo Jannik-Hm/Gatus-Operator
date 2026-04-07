@@ -1,5 +1,5 @@
 # Image URL to use all building/pushing image targets
-IMG ?= controller:latest
+IMG ?= gatus-operator:latest
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -265,6 +265,17 @@ delete-cluster:
 	kind delete cluster --name gatus-operator
 
 copy-podman-image:
-	@podman save -o gatus.tar $(IMG)
-	@kind load image-archive gatus.tar --name gatus-operator
-	@rm gatus.tar
+	bash -c 'TMPFILE=$$(mktemp); podman save -o $$TMPFILE $(IMG); kind load image-archive $$TMPFILE --name gatus-operator; echo "removing $$TMPFILE again"; rm $$TMPFILE'
+
+.PHONY: wait-cert-manager
+wait-cert-manager:
+	@echo "Waiting for cert-manager-webhook to be ready..."
+	@kubectl wait --for=condition=Available deployment/cert-manager-webhook -n cert-manager --timeout=60s
+	@# Even after 'Available', the binary might still be initializing its listener.
+	@# A tiny 2-second sleep here is often more reliable than a 10-second blind sleep.
+	@sleep 2
+
+# podman is so nice to prepend `localhost/` to locally built images...
+.PHONY: kind-podman-run
+kind-podman-run:
+	bash -c 'make generate; make manifests; make docker-build CONTAINER_TOOL=podman; make create-cluster; make install; make copy-podman-image; make wait-cert-manager; make deploy IMG=localhost/$(IMG)'
