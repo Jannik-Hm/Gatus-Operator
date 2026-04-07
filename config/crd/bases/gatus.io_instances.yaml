@@ -53,6 +53,43 @@ spec:
                 format: int32
                 minimum: 0
                 type: integer
+              service:
+                description: Service Config, if omitted, no service will be created
+                properties:
+                  annotations:
+                    additionalProperties:
+                      type: string
+                    description: Additional Service Annotations
+                    type: object
+                  enable:
+                    default: true
+                    description: Enable service generation (only required when all
+                      other service settings are omitted)
+                    type: boolean
+                  ipFamilies:
+                    description: IP Families of the service
+                    items:
+                      description: |-
+                        IPFamily represents the IP Family (IPv4 or IPv6). This type is used
+                        to express the family of an IP expressed by a type (e.g. service.spec.ipFamilies).
+                      type: string
+                    type: array
+                  ipFamilyPolicy:
+                    description: IPFamilyPolicy of the service
+                    type: string
+                  labels:
+                    additionalProperties:
+                      type: string
+                    description: Additional Service Labels
+                    type: object
+                  type:
+                    default: ClusterIP
+                    description: Type of the service
+                    type: string
+                required:
+                - enable
+                - type
+                type: object
               serviceName:
                 description: Name of the Service created, defaults to instance name
                 type: string
@@ -62,11 +99,6 @@ spec:
           status:
             description: status defines the observed state of Instance
             properties:
-              Replicas:
-                default: 0
-                description: Current Replicas
-                format: int32
-                type: integer
               conditions:
                 description: |-
                   conditions represent the current state of the Instance resource.
@@ -139,6 +171,11 @@ spec:
               deploymentName:
                 description: Corresponding Deployment Name
                 type: string
+              replicas:
+                default: 0
+                description: Current Replicas
+                format: int32
+                type: integer
             type: object
         required:
         - spec

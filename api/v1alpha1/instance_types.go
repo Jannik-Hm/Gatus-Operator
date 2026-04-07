@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -48,6 +49,10 @@ type InstanceSpec struct {
 	// +kubebuilder:validation:Pattern=`^([\w\.\-\/]+)(:[\w\.\-]+)?(@sha256:[a-fA-F0-0]{64})?$`
 	// +optional
 	Image *string `json:"image,omitempty"`
+
+	// Service Config, if omitted, no service will be created
+	// +optional
+	Service *ServiceConfig `json:"service,omitempty"`
 }
 
 // InstanceStatus defines the observed state of Instance.
@@ -78,7 +83,33 @@ type InstanceStatus struct {
 
 	// Current Replicas
 	// +kubebuilder:default:=0
-	Replicas int32 `json:"Replicas,omitempty"`
+	Replicas int32 `json:"replicas,omitempty"`
+}
+
+type ServiceConfig struct {
+	// Enable service generation (only required when all other service settings are omitted)
+	// +kubebuilder:default:=true
+	Enabled bool `json:"enable"`
+
+	// Type of the service
+	// +kubebuilder:default:=ClusterIP
+	ServiceType corev1.ServiceType `json:"type"`
+
+	// Additional Service Annotations
+	// +optional
+	ServiceAnnotations map[string]string `json:"annotations,omitempty"`
+
+	// Additional Service Labels
+	// +optional
+	ServiceLabels map[string]string `json:"labels,omitempty"`
+
+	// IPFamilyPolicy of the service
+	// +optional
+	IPFamilyPolicy *corev1.IPFamilyPolicy `json:"ipFamilyPolicy,omitempty"`
+
+	// IP Families of the service
+	// +optional
+	IPFamilies []corev1.IPFamily `json:"ipFamilies,omitempty"`
 }
 
 // +kubebuilder:object:root=true

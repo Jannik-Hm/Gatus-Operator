@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"maps"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -26,6 +27,8 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -46,6 +49,7 @@ type InstanceReconciler struct {
 // +kubebuilder:rbac:groups=gatus.io,resources=instances/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=gatus.io,resources=instances/finalizers,verbs=update
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -79,54 +83,21 @@ func (r *InstanceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		},
 	}
 
-	op, err := controllerutil.CreateOrUpdate(ctx, r.Client, correspondingDeployment, func() error {
-		// Check if the object already exists and has a different owner
-		if correspondingDeployment.ResourceVersion != "" { // Object exists
-			owner := metav1.GetControllerOf(correspondingDeployment)
-			if owner == nil || owner.UID != instance.UID {
-				return fmt.Errorf("deployment %s already exists and is not managed by this operator", correspondingDeployment.Name)
-			}
-		}
+	// TODO:
+	// // create/update config
+	// op, err := controllerutil.CreateOrUpdate(ctx, r.Client, correspondingDeployment, func() error { return MutateDeployment(&instance, correspondingDeployment, r.Scheme) })
 
-		// Set/Ensure the Controller Reference
-		if err := controllerutil.SetControllerReference(&instance, correspondingDeployment, r.Scheme); err != nil {
-			return err
-		}
+	// if err != nil {
+	// 	log.Error(err, "Failed to create/update Deployment")
+	// 	return ctrl.Result{}, err
+	// }
 
-		var deploymentLabels = map[string]string{
-			"app.kubernetes.io/name":     "gatus",
-			"app.kubernetes.io/instance": instance.Name,
-			"managed-by":                 "gatus-operator",
-		}
+	// if op != controllerutil.OperationResultNone {
+	// 	log.Info("Deployment reconciled", "Operation", op)
+	// }
 
-		if instance.Spec.Image == nil {
-			return fmt.Errorf("Image is empty, this means that the defaulting webhook is not working properly.")
-		}
-		image := *instance.Spec.Image
-
-		correspondingDeployment.Spec = appsv1.DeploymentSpec{
-			Replicas: instance.Spec.Replicas,
-			Selector: &metav1.LabelSelector{
-				MatchLabels: deploymentLabels,
-			},
-			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: deploymentLabels,
-				},
-				Spec: corev1.PodSpec{
-					Containers: []corev1.Container{
-						{
-							Name:  "gatus",
-							Image: image,
-						},
-					},
-				},
-			},
-		}
-
-		return nil
-
-	})
+	// create/update deployment
+	op, err := controllerutil.CreateOrUpdate(ctx, r.Client, correspondingDeployment, func() error { return MutateDeployment(&instance, correspondingDeployment, r.Scheme) })
 
 	if err != nil {
 		log.Error(err, "Failed to create/update Deployment")
@@ -135,6 +106,40 @@ func (r *InstanceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	if op != controllerutil.OperationResultNone {
 		log.Info("Deployment reconciled", "Operation", op)
+	}
+
+	// create/update service
+	if instance.Spec.Service != nil && instance.Spec.Service.Enabled {
+		correspondingService := &corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      req.Name,
+				Namespace: req.Namespace,
+			},
+		}
+
+		op, err = controllerutil.CreateOrUpdate(ctx, r.Client, correspondingService, func() error { return MutateService(&instance, correspondingService, r.Scheme) })
+
+		if err != nil {
+			log.Error(err, "Failed to create/update Deployment")
+			return ctrl.Result{}, err
+		}
+
+		if op != controllerutil.OperationResultNone {
+			log.Info("Deployment reconciled", "Operation", op)
+		}
+	} else {
+		var service corev1.Service
+		err := r.Get(ctx, req.NamespacedName, &service)
+
+		if err != nil && !apierrors.IsNotFound(err) {
+			log.Error(err, "Failed to check if service exists")
+			return ctrl.Result{}, err
+		} else if err == nil {
+			if err := r.Delete(ctx, &service); err != nil {
+				log.Error(err, "Failed to delete service")
+				return ctrl.Result{}, err
+			}
+		}
 	}
 
 	var currentDeploy appsv1.Deployment
@@ -174,6 +179,132 @@ func (r *InstanceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&gatusiov1alpha1.Instance{}).
 		Owns(&appsv1.Deployment{}).
+		Owns(&corev1.Service{}).
 		Named("instance").
 		Complete(r)
+}
+
+func getDeploymentLabels(instance *gatusiov1alpha1.Instance) map[string]string {
+	return map[string]string{
+		"app.kubernetes.io/name":     "gatus",
+		"app.kubernetes.io/instance": instance.Name,
+		"managed-by":                 "gatus-operator",
+	}
+}
+
+func MutateDeployment(instance *gatusiov1alpha1.Instance, obj *appsv1.Deployment, scheme *runtime.Scheme) error {
+	// Check if the object already exists and has a different owner
+	if obj.GetResourceVersion() != "" { // Object exists
+		owner := metav1.GetControllerOf(obj)
+		if owner == nil || owner.UID != instance.UID {
+			return fmt.Errorf("deployment %s already exists and is not managed by this operator", obj.GetName())
+		}
+	}
+
+	// Set/Ensure the Controller Reference
+	if err := controllerutil.SetControllerReference(instance, obj, scheme); err != nil {
+		return err
+	}
+
+	var deploymentLabels = getDeploymentLabels(instance)
+
+	if instance.Spec.Image == nil {
+		return fmt.Errorf("Image is empty, this means that the defaulting webhook is not working properly.")
+	}
+	image := *instance.Spec.Image
+
+	obj.Spec.Replicas = instance.Spec.Replicas
+
+	obj.Spec.Template = corev1.PodTemplateSpec{
+		ObjectMeta: metav1.ObjectMeta{
+			Labels: maps.Clone(deploymentLabels),
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name:  "gatus",
+					Image: image,
+					Ports: []corev1.ContainerPort{
+						{
+							Name:          "http",
+							ContainerPort: 8080,
+							Protocol:      corev1.ProtocolTCP,
+						},
+					},
+					SecurityContext: &corev1.SecurityContext{
+						ReadOnlyRootFilesystem: ptr.To(true),
+					},
+					ReadinessProbe: &corev1.Probe{
+						ProbeHandler: corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{
+							Path: "/health",
+							Port: intstr.FromString("http"),
+						}},
+					},
+					LivenessProbe: &corev1.Probe{
+						ProbeHandler: corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{
+							Path: "/health",
+							Port: intstr.FromString("http"),
+						}},
+					},
+				},
+			},
+			SecurityContext: &corev1.PodSecurityContext{
+				RunAsNonRoot: ptr.To(true),
+				RunAsUser:    ptr.To[int64](65534),
+				RunAsGroup:   ptr.To[int64](65534),
+				FSGroup:      ptr.To[int64](65534),
+			},
+		},
+	}
+
+	// We only set the selector IF the object is being created.
+	// If it exists, we leave the selector alone to avoid immutability errors.
+	if obj.ObjectMeta.CreationTimestamp.IsZero() {
+		obj.Spec.Selector = &metav1.LabelSelector{
+			MatchLabels: maps.Clone(deploymentLabels),
+		}
+	}
+
+	return nil
+}
+
+func MutateService(instance *gatusiov1alpha1.Instance, obj *corev1.Service, scheme *runtime.Scheme) error {
+	// Check if the object already exists and has a different owner
+	if obj.GetResourceVersion() != "" { // Object exists
+		owner := metav1.GetControllerOf(obj)
+		if owner == nil || owner.UID != instance.UID {
+			return fmt.Errorf("deployment %s already exists and is not managed by this operator", obj.GetName())
+		}
+	}
+
+	// Set/Ensure the Controller Reference
+	if err := controllerutil.SetControllerReference(instance, obj, scheme); err != nil {
+		return err
+	}
+
+	var deploymentLabels = getDeploymentLabels(instance)
+
+	var serviceLabels = map[string]string{}
+	maps.Copy(serviceLabels, instance.Spec.Service.ServiceLabels)
+	maps.Copy(serviceLabels, deploymentLabels)
+
+	obj.Annotations = maps.Clone(instance.Spec.Service.ServiceAnnotations)
+	obj.Labels = maps.Clone(serviceLabels)
+
+	obj.Spec = corev1.ServiceSpec{
+		Selector: deploymentLabels,
+		Ports: []corev1.ServicePort{
+			{
+				Name:       "http",
+				Protocol:   corev1.ProtocolTCP,
+				Port:       80,
+				TargetPort: intstr.FromString("http"),
+			},
+		},
+		Type:           instance.Spec.Service.ServiceType,
+		IPFamilyPolicy: instance.Spec.Service.IPFamilyPolicy,
+		IPFamilies:     instance.Spec.Service.IPFamilies,
+	}
+
+	return nil
 }
