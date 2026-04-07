@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=../crd/bases/gatus.io_instances.yaml
 apiVersion: gatus.io/v1alpha1
 kind: Instance
 metadata:
@@ -7,4 +8,10 @@ metadata:
   name: instance-sample
 spec:
   name: "Test-Gatus"
-  image: "ghcr.io/twin/gatus:stable"
+  # image: "ghcr.io/twin/gatus:stable"
+  service:
+    enable: true
+    ipFamilyPolicy: "PreferDualStack"
+    # ipFamilies:
+    #   - "IPv4"
+    #   - "IPv6"
