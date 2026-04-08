@@ -29,7 +29,7 @@ type GatusConfig struct {
 
 	Ui *GatusUiConfig `json:"ui,omitempty"`
 
-	Maintenance string `json:"maintenance,omitempty"`
+	Maintenance *GatusMaintenanceConfig `json:"maintenance,omitempty"`
 }
 
 // TODO: add kubebuilder markers
@@ -51,6 +51,7 @@ const (
 )
 
 type GatusAlertingConfig struct {
+	// TODO:
 }
 
 type GatusAnnouncementConfig struct {
@@ -82,6 +83,7 @@ type GatusEndpointAlertConfig struct {
 }
 
 type GatusEndpointConfig struct {
+	// TODO:
 }
 
 type GatusExternalEndpointConfig struct {
@@ -125,4 +127,13 @@ type GatusWebConfig struct {
 }
 
 type GatusUiConfig struct {
+	// TODO:
+}
+
+type GatusMaintenanceConfig struct {
+	Enabled  *bool    `json:"enabled,omitempty"`
+	Start    string   `json:"start"`
+	Duration string   `json:"duration"`
+	Timezone *string  `json:"timezone,omitempty"`
+	Every    []string `json:"every,omitempty"`
 }
