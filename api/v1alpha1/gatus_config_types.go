@@ -85,12 +85,43 @@ type GatusEndpointConfig struct {
 }
 
 type GatusExternalEndpointConfig struct {
+	Enabled   *bool                                `json:"enabled,omitempty"`
+	Name      string                               `json:"name"`
+	Group     *string                              `json:"group,omitempty"`
+	Token     string                               `json:"token"`
+	Alerts    []GatusEndpointAlertConfig           `json:"alerts,omitempty"`
+	Heartbeat GatusExternalEndpointHeartbeatConfig `json:"heartbeat"`
+}
+
+type GatusExternalEndpointHeartbeatConfig struct {
+	Interval *string `json:"interval,omitempty"`
 }
 
 type GatusSecurityConfig struct {
+	Basic *GatusSecurityBasicConfig `json:"basic,omitempty"`
+	OIDC  *GatusSecurityOIDCConfig  `json:"oidc,omitempty"`
+}
+
+type GatusSecurityBasicConfig struct {
+	Username string `json:"username"`
+	PassHash string `json:"password-bcrypt-base64"`
+}
+
+type GatusSecurityOIDCConfig struct {
+	IssuerURL       string   `json:"issuer-url"`
+	RedirectURL     string   `json:"redirect-url"`
+	ClientID        string   `json:"client-id"`
+	ClientSecret    string   `json:"client-secret"`
+	Scopes          []string `json:"scopes,omitempty"`
+	AllowedSubjects []string `json:"allowed-subjects,omitempty"`
+	SessionTTL      *string  `json:"session-ttl,omitempty"`
 }
 
 type GatusWebConfig struct {
+	Address *string `json:"address,omitempty"`
+	// Port           *int32  `json:"port,omitempty"` // no sense in allowing a user to change the port
+	ReadBufferSize *int32 `json:"read-buffer-size,omitempty"`
+	// TLS            *GatusWebTLSConfig `json:"tls,omitempty"` // no sense in allowing a user to change tls
 }
 
 type GatusUiConfig struct {
