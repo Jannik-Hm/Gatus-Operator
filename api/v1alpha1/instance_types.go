@@ -19,6 +19,7 @@ package v1alpha1
 import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 )
 
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
@@ -53,6 +54,14 @@ type InstanceSpec struct {
 	// Service Config, if omitted, no service will be created
 	// +optional
 	Service *ServiceConfig `json:"service,omitempty"`
+
+	// Global Gatus config
+	// +optional
+	GatusConfig GatusInstanceConfig `json:"gatus-config"`
+
+	// TODO: ingress?
+
+	// TODO: HTTPRoute?
 }
 
 // InstanceStatus defines the observed state of Instance.
@@ -110,6 +119,58 @@ type ServiceConfig struct {
 	// IP Families of the service
 	// +optional
 	IPFamilies []corev1.IPFamily `json:"ipFamilies,omitempty"`
+}
+
+type GatusInstanceConfig struct {
+	// Whether to expose metrics at /metrics.
+	// +optional
+	Metrics *bool `json:"metrics,omitempty"`
+
+	// Storage Configuration (see https://github.com/TwiN/gatus/tree/master#storage)
+	// default is Memory, this is not container restart persistent
+	// since config changes result in a rolling deployment change, that will clear all history
+	// to persist either use sqlite or postgres
+	// +optional
+	Storage *GatusStorageConfig `json:"storage,omitempty"` // TODO: custom struct to create VPC when type is `sqlite`
+
+	// Alerting Configuration (see https://github.com/TwiN/gatus/tree/master#alerting)
+	// +kubebuilder:pruning:PreserveUnknownFields
+	// +optional
+	Alerting *runtime.RawExtension `json:"alerting,omitempty"`
+
+	// Security Configuration (see https://github.com/TwiN/gatus/tree/master#security)
+	// Note: there will be changes to simplify secret refs
+	// +optional
+	Security *GatusSecurityConfig `json:"security,omitempty"` // TODO: custom struct for CRD to allow secretRefs and do env substitution
+
+	// Maximum number of endpoints/suites to monitor concurrently
+	// Set to 0 for unlimited (see https://github.com/TwiN/gatus/tree/master#concurrency)
+	Concurrency *int32 `json:"concurrency,omitempty"`
+
+	// Web Configuration
+	// If you experience `431 Request Header Fields Too Large error`, increase this value (default is 8192, as of 2026-04-10)
+	// +optional
+	Web *GatusInstanceWebConfig `json:"web,omitempty"`
+
+	// UI Configuration (see https://github.com/TwiN/gatus/tree/master#ui)
+	// +optional
+	Ui *GatusUiConfig `json:"ui,omitempty"`
+
+	// Maintenance Configuration (see https://github.com/TwiN/gatus/tree/master#maintenance)
+	// +optional
+	Maintenance *GatusMaintenanceConfig `json:"maintenance,omitempty"`
+
+	// Connectivity Configuration (see https://github.com/TwiN/gatus/tree/master#connectivity)
+	// Used to check wether the connection of Gatus itself is broken
+	// All endpoint executions are skipped while the connectivity checker deems connectivity to be down
+	// +optional
+	Connectivity *GatusConnectivityConfig `json:"connectivity,omitempty"`
+}
+
+type GatusInstanceWebConfig struct {
+	ReadBufferSize *int32 `json:"read-buffer-size,omitempty"`
+
+	// settings such as port or listen address should not be user adjustable
 }
 
 // +kubebuilder:object:root=true

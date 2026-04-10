@@ -39,6 +39,171 @@ spec:
           spec:
             description: spec defines the desired state of Instance
             properties:
+              gatus-config:
+                description: Global Gatus config
+                properties:
+                  alerting:
+                    description: Alerting Configuration (see https://github.com/TwiN/gatus/tree/master#alerting)
+                    type: object
+                    x-kubernetes-preserve-unknown-fields: true
+                  concurrency:
+                    description: |-
+                      Maximum number of endpoints/suites to monitor concurrently
+                      Set to 0 for unlimited (see https://github.com/TwiN/gatus/tree/master#concurrency)
+                    format: int32
+                    type: integer
+                  connectivity:
+                    description: |-
+                      Connectivity Configuration (see https://github.com/TwiN/gatus/tree/master#connectivity)
+                      Used to check wether the connection of Gatus itself is broken
+                      All endpoint executions are skipped while the connectivity checker deems connectivity to be down
+                    properties:
+                      checker:
+                        properties:
+                          interval:
+                            type: string
+                          target:
+                            type: string
+                        required:
+                        - target
+                        type: object
+                    required:
+                    - checker
+                    type: object
+                  maintenance:
+                    description: Maintenance Configuration (see https://github.com/TwiN/gatus/tree/master#maintenance)
+                    properties:
+                      duration:
+                        type: string
+                      enabled:
+                        type: boolean
+                      every:
+                        items:
+                          type: string
+                        type: array
+                      start:
+                        type: string
+                      timezone:
+                        type: string
+                    required:
+                    - duration
+                    - start
+                    type: object
+                  metrics:
+                    description: Whether to expose metrics at /metrics.
+                    type: boolean
+                  security:
+                    description: |-
+                      Security Configuration (see https://github.com/TwiN/gatus/tree/master#security)
+                      Note: there will be changes to simplify secret refs
+                    properties:
+                      basic:
+                        properties:
+                          password-bcrypt-base64:
+                            type: string
+                          username:
+                            type: string
+                        required:
+                        - password-bcrypt-base64
+                        - username
+                        type: object
+                      oidc:
+                        properties:
+                          allowed-subjects:
+                            items:
+                              type: string
+                            type: array
+                          client-id:
+                            type: string
+                          client-secret:
+                            type: string
+                          issuer-url:
+                            type: string
+                          redirect-url:
+                            type: string
+                          scopes:
+                            items:
+                              type: string
+                            type: array
+                          session-ttl:
+                            type: string
+                        required:
+                        - client-id
+                        - client-secret
+                        - issuer-url
+                        - redirect-url
+                        type: object
+                    type: object
+                  storage:
+                    description: |-
+                      Storage Configuration (see https://github.com/TwiN/gatus/tree/master#storage)
+                      default is Memory, this is not container restart persistent
+                      since config changes result in a rolling deployment change, that will clear all history
+                      to persist either use sqlite or postgres
+                    properties:
+                      caching:
+                        type: boolean
+                      maximum-number-of-events:
+                        format: int32
+                        type: integer
+                      maximum-number-of-results:
+                        format: int32
+                        type: integer
+                      path:
+                        type: string
+                      type:
+                        type: string
+                    type: object
+                  ui:
+                    description: UI Configuration (see https://github.com/TwiN/gatus/tree/master#ui)
+                    properties:
+                      buttons:
+                        items:
+                          properties:
+                            link:
+                              type: string
+                            name:
+                              type: string
+                          required:
+                          - link
+                          - name
+                          type: object
+                        type: array
+                      custom-css:
+                        type: string
+                      dark-mode:
+                        type: boolean
+                      dashboard-heading:
+                        type: string
+                      dashboard-subheading:
+                        type: string
+                      default-filter-by:
+                        type: string
+                      default-sort-by:
+                        type: string
+                      description:
+                        type: string
+                      header:
+                        type: string
+                      link:
+                        type: string
+                      login-subtitle:
+                        type: string
+                      logo:
+                        type: string
+                      title:
+                        type: string
+                    type: object
+                  web:
+                    description: |-
+                      Web Configuration
+                      If you experience `431 Request Header Fields Too Large error`, increase this value (default is 8192, as of 2026-04-10)
+                    properties:
+                      read-buffer-size:
+                        format: int32
+                        type: integer
+                    type: object
+                type: object
               image:
                 description: Image to be used
                 pattern: ^([\w\.\-\/]+)(:[\w\.\-]+)?(@sha256:[a-fA-F0-0]{64})?$
