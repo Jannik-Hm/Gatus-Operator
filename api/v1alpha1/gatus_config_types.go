@@ -2,38 +2,44 @@ package v1alpha1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 )
 
 type GatusConfig struct {
-	Metrics bool `json:"metrics"`
+	Metrics *bool `json:"metrics,omitempty"`
 
 	Storage *GatusStorageConfig `json:"storage,omitempty"`
 
-	Alerting *GatusAlertingConfig `json:"alerting,omitempty"`
+	// +kubebuilder:pruning:PreserveUnknownFields
+	Alerting *runtime.RawExtension `json:"alerting,omitempty"`
 
-	Announcements []GatusAnnouncementConfig `json:"announcements,omitempty"`
+	Announcements []GatusAnnouncementConfig `json:"announcements,omitempty"` // TODO: custom CRD
 
-	Endpoints []GatusEndpointConfig `json:"endpoints,omitempty"`
+	Endpoints []GatusEndpointConfig `json:"endpoints,omitempty"` // TODO: custom CRD
 
-	ExternalEndpoints []GatusExternalEndpointConfig `json:"external-endpoints,omitempty"`
+	ExternalEndpoints []GatusExternalEndpointConfig `json:"external-endpoints,omitempty"` // TODO: custom CRD
 
 	Security *GatusSecurityConfig `json:"security,omitempty"`
 
 	Concurrency *int32 `json:"concurrency,omitempty"`
 
-	DisableMonitoringLock *bool `json:"disable-monitoring-lock,omitempty"`
+	// DisableMonitoringLock *bool `json:"disable-monitoring-lock,omitempty"` // this one is deprecated, rather use `Concurrency = 0`
 
-	SkipInvalidConfigUpdate *bool `json:"skip-invalid-config-update,omitempty"`
+	SkipInvalidConfigUpdate *bool `json:"skip-invalid-config-update,omitempty"` // irrelevant as updates will be handled outside of the configmap
 
-	Web *GatusWebConfig `json:"web,omitempty"`
+	Web *GatusWebConfig `json:"web,omitempty"` // add read-buffer-size config to "Instance"
 
 	Ui *GatusUiConfig `json:"ui,omitempty"`
 
 	Maintenance *GatusMaintenanceConfig `json:"maintenance,omitempty"`
 
-	Suites []GatusSuiteConfig `json:"suites,omitempty"`
+	Suites []GatusSuiteConfig `json:"suites,omitempty"` // TODO: custom CRD
 
-	Tunneling map[string]GatusTunnelingConfig `json:"tunnel,omitempty"`
+	// Tunneling map[string]GatusTunnelingConfig `json:"tunnel,omitempty"` // omit for now, as this is likely not required in a kubernetes setup. If requested, add implementation
+
+	// Remote // omitted for now, as it is still in alpha and subject to change
+
+	Connectivity *GatusConnectivityConfig `json:"connectivity,omitempty"`
 }
 
 // TODO: add kubebuilder markers
@@ -54,7 +60,7 @@ const (
 	GatusStorageTypePostgres GatusStorageType = "postgres"
 )
 
-type GatusAlertingConfig any // TODO: test if CRD passes these through or specific kubebuilder annotations are needed or replace by actual structs
+// type GatusAlertingConfig runtime.RawExtension // TODO: test if CRD passes these through or specific kubebuilder annotations are needed or replace by actual structs
 
 type GatusAnnouncementConfig struct {
 	Timestamp metav1.Time      `json:"timestamp"`
@@ -74,14 +80,16 @@ const (
 )
 
 type GatusEndpointAlertConfig struct {
-	Type                    string         `json:"type"`
-	Enabled                 *bool          `json:"enabled,omitempty"`
-	FailureThreshold        *int32         `json:"failure-threshold,omitempty"`
-	SuccessThreshold        *int32         `json:"success-threshold,omitempty"`
-	MinimumReminderInterval *string        `json:"minimum-reminder-interval,omitempty"`
-	SendOnResolved          *bool          `json:"send-on-resolved,omitempty"`
-	Description             *string        `json:"description,omitempty"`
-	ProviderOverride        map[string]any `json:"provider-override,omitempty"` // TODO: test if CRD passes these through or specific kubebuilder annotations are needed
+	Type                    string  `json:"type"`
+	Enabled                 *bool   `json:"enabled,omitempty"`
+	FailureThreshold        *int32  `json:"failure-threshold,omitempty"`
+	SuccessThreshold        *int32  `json:"success-threshold,omitempty"`
+	MinimumReminderInterval *string `json:"minimum-reminder-interval,omitempty"`
+	SendOnResolved          *bool   `json:"send-on-resolved,omitempty"`
+	Description             *string `json:"description,omitempty"`
+
+	// +kubebuilder:pruning:PreserveUnknownFields
+	ProviderOverride map[string]runtime.RawExtension `json:"provider-override,omitempty"` // TODO: test if CRD passes these through or specific kubebuilder annotations are needed
 }
 
 type GatusEndpointConfig struct {
@@ -114,8 +122,8 @@ type GatusEndpointDNSConfig struct {
 }
 
 type GatusEndpointSSHConfig struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
+	Username string `json:"username"` //TODO: secret ref/mounting
+	Password string `json:"password"` //TODO: secret ref/mounting
 }
 
 type GatusEndpointUiConfig struct {
@@ -171,9 +179,9 @@ type GatusSecurityOIDCConfig struct {
 }
 
 type GatusWebConfig struct {
-	Address *string `json:"address,omitempty"`
-	// Port           *int32  `json:"port,omitempty"` // no sense in allowing a user to change the port
-	ReadBufferSize *int32 `json:"read-buffer-size,omitempty"`
+	Address        *string `json:"address,omitempty"`
+	Port           *int32  `json:"port,omitempty"`
+	ReadBufferSize *int32  `json:"read-buffer-size,omitempty"`
 	// TLS            *GatusWebTLSConfig `json:"tls,omitempty"` // no sense in allowing a user to change tls
 }
 
@@ -213,13 +221,15 @@ type GatusMaintenanceConfig struct {
 }
 
 type GatusSuiteConfig struct {
-	Enabled   *bool                 `json:"enabled,omitempty"`
-	Name      string                `json:"name"`
-	Group     *string               `json:"group,omitempty"`
-	Interval  *string               `json:"interval,omitempty"`
-	Timeout   *string               `json:"timeout,omitempty"`
-	Context   map[string]any        `json:"context,omitempty"`
-	Endpoints []GatusEndpointConfig `json:"endpoints,omitempty"`
+	Enabled  *bool   `json:"enabled,omitempty"`
+	Name     string  `json:"name"`
+	Group    *string `json:"group,omitempty"`
+	Interval *string `json:"interval,omitempty"`
+	Timeout  *string `json:"timeout,omitempty"`
+
+	// +kubebuilder:pruning:PreserveUnknownFields
+	Context   map[string]runtime.RawExtension `json:"context,omitempty"`
+	Endpoints []GatusEndpointConfig           `json:"endpoints,omitempty"`
 }
 
 type GatusClientConfig struct {
@@ -232,14 +242,14 @@ type GatusClientConfig struct {
 	IdentityAwareProxy *GatusClientIdentityAwareProxyConfig `json:"identity-aware-proxy,omitempty"`
 	MTLS               *GatusClientmTLSConfig               `json:"tls,omitempty"`
 	Network            *string                              `json:"network,omitempty"`
-	Tunnel             *string                              `json:"tunnel,omitempty"`
+	// Tunnel             *string                              `json:"tunnel,omitempty"` // omit for now, as this is likely not required in a kubernetes setup. If requested, add implementation
 }
 
 type GatusClientOauth2Config struct {
-	TokenURL     string   `json:"token-url"`
-	ClientID     string   `json:"client-id"`
-	ClientSecret string   `json:"client-secret"`
-	Scopes       []string `json:"scopes"`
+	TokenURL     string   `json:"token-url"`     //TODO: secret ref/mounting
+	ClientID     string   `json:"client-id"`     //TODO: secret ref/mounting
+	ClientSecret string   `json:"client-secret"` //TODO: secret ref/mounting
+	Scopes       []string `json:"scopes"`        //TODO: secret ref/mounting
 }
 
 type GatusClientIdentityAwareProxyConfig struct {
@@ -247,16 +257,25 @@ type GatusClientIdentityAwareProxyConfig struct {
 }
 
 type GatusClientmTLSConfig struct {
-	CertificateFile *string `json:"certificate-file,omitempty"`
-	PrivateKeyFile  *string `json:"private-key-file,omitempty"`
+	CertificateFile *string `json:"certificate-file,omitempty"` //TODO: secret ref/mounting
+	PrivateKeyFile  *string `json:"private-key-file,omitempty"` //TODO: secret ref/mounting
 	Renegotiation   *string `json:"renegotiation,omitempty"`
 }
 
-type GatusTunnelingConfig struct {
-	Type       string  `json:"type"`
-	Host       string  `json:"host"`
-	Port       *int32  `json:"port,omitempty"`
-	Username   string  `json:"username"`
-	Password   *string `json:"password,omitempty"`
-	PrivateKey *string `json:"private-key,omitempty"`
+// type GatusTunnelingConfig struct {
+// 	Type       string  `json:"type"`
+// 	Host       string  `json:"host"`
+// 	Port       *int32  `json:"port,omitempty"`
+// 	Username   string  `json:"username"`
+// 	Password   *string `json:"password,omitempty"`
+// 	PrivateKey *string `json:"private-key,omitempty"`
+// }
+
+type GatusConnectivityConfig struct {
+	Checker GatusConnectivityCheckerConfig `json:"checker"`
+}
+
+type GatusConnectivityCheckerConfig struct {
+	Target   string  `json:"target"`
+	Interval *string `json:"interval,omitempty"`
 }
