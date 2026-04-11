@@ -333,8 +333,14 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              currentConfigmapHash:
+                description: Hash of current configmap
+                type: string
               deploymentName:
                 description: Corresponding Deployment Name
+                type: string
+              lastSuccessfulConfigmapHash:
+                description: Hash of last successful configmap
                 type: string
               replicas:
                 default: 0

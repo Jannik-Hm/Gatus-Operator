@@ -93,6 +93,14 @@ type InstanceStatus struct {
 	// Current Replicas
 	// +kubebuilder:default:=0
 	Replicas int32 `json:"replicas,omitempty"`
+
+	// Hash of current configmap
+	// +optional
+	CurrentConfigmapHash string `json:"currentConfigmapHash,omitempty"`
+
+	// Hash of last successful configmap
+	// +optional
+	LastSuccessfulConfigmapHash string `json:"lastSuccessfulConfigmapHash,omitempty"`
 }
 
 type ServiceConfig struct {
