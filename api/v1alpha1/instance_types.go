@@ -101,6 +101,11 @@ type InstanceStatus struct {
 	// Hash of last successful configmap
 	// +optional
 	LastSuccessfulConfigmapHash string `json:"lastSuccessfulConfigmapHash,omitempty"`
+
+	// Current status
+	// +kubebuilder:validation:Enum=Pending;Running;Failed
+	// +kubebuilder:default:=Pending
+	Status string `json:"status"`
 }
 
 type ServiceConfig struct {
@@ -183,6 +188,8 @@ type GatusInstanceWebConfig struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="Status",type="string",JSONPath=".status.status",description="The current status"
+// +kubebuilder:printcolumn:name="Replicas",type="integer",JSONPath=".status.replicas",description="Number of currently available Replicas"
 
 // Instance is the Schema for the instances API
 type Instance struct {

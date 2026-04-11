@@ -14,7 +14,16 @@ spec:
     singular: instance
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - description: The current status
+      jsonPath: .status.status
+      name: Status
+      type: string
+    - description: Number of currently available Replicas
+      jsonPath: .status.replicas
+      name: Replicas
+      type: integer
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: Instance is the Schema for the instances API
@@ -347,6 +356,16 @@ spec:
                 description: Current Replicas
                 format: int32
                 type: integer
+              status:
+                default: Pending
+                description: Current status
+                enum:
+                - Pending
+                - Running
+                - Failed
+                type: string
+            required:
+            - status
             type: object
         required:
         - spec
