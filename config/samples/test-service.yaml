@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-app
+spec:
+  selector:
+    matchLabels:
+      app: test-app
+  template:
+    metadata:
+      labels:
+        app: test-app
+    spec:
+      containers:
+      - image:  nginx:alpine-slim
+        name:  test-app
+        ports:
+        - containerPort:  80
+          name:  http
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name:  test-service
+spec:
+  selector:
+    app:  test-app
+  type:  ClusterIP
+  ports:
+  - name:  http
+    port:  80
+    targetPort:  80
