@@ -260,9 +260,6 @@ spec:
                     default: ClusterIP
                     description: Type of the service
                     type: string
-                required:
-                - enable
-                - type
                 type: object
               serviceName:
                 description: Name of the Service created, defaults to instance name

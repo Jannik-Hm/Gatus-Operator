@@ -111,10 +111,12 @@ type InstanceStatus struct {
 type ServiceConfig struct {
 	// Enable service generation (only required when all other service settings are omitted)
 	// +kubebuilder:default:=true
+	// +optional
 	Enabled bool `json:"enable"`
 
 	// Type of the service
 	// +kubebuilder:default:=ClusterIP
+	// +optional
 	ServiceType corev1.ServiceType `json:"type"`
 
 	// Additional Service Annotations
