@@ -55,6 +55,7 @@ type InstanceReconciler struct {
 // +kubebuilder:rbac:groups=gatus.io,resources=instances/finalizers,verbs=update
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -179,12 +180,14 @@ func (r *InstanceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		// Update "Available" condition based on deployment status
 		conditionStatus := metav1.ConditionFalse
 		reason := "DeploymentProgressing"
+		instanceStatus := "Pending"
 		var configUpdateSucceeded *bool
-		if currentDeploy.Status.UpdatedReplicas > 0 {
+		if currentDeploy.Status.UpdatedReplicas > 0 && currentDeploy.Status.UpdatedReplicas == currentDeploy.Status.AvailableReplicas {
 			conditionStatus = metav1.ConditionTrue
 			reason = "DeploymentReady"
 			instance.Status.LastSuccessfulConfigmapHash = fmt.Sprintf("%x", hash)
 			configUpdateSucceeded = ptr.To(true)
+			instanceStatus = "Running"
 		} else {
 			for _, condition := range currentDeploy.Status.Conditions {
 				if condition.Type == appsv1.DeploymentProgressing && condition.Status == corev1.ConditionFalse {
@@ -192,10 +195,14 @@ func (r *InstanceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 						log.Info("Deployment rollout failed: ProgressDeadlineExceeded")
 						configUpdateSucceeded = ptr.To(false)
 						reason = "DeploymentRolloutFailed"
+						instanceStatus = "Failed"
+						// TODO: rollback deployment
 					}
 				}
 			}
 		}
+
+		instance.Status.Status = instanceStatus
 
 		if configUpdateSucceeded == nil || *configUpdateSucceeded {
 			meta.SetStatusCondition(&instance.Status.Conditions, metav1.Condition{
@@ -391,21 +398,49 @@ func mutateService(instance *gatusiov1alpha1.Instance, obj *corev1.Service, sche
 
 func generateConfigString(instance *gatusiov1alpha1.Instance) (string, error) {
 	gatus_config := v1alpha1.GatusConfig{
-		Metrics:  instance.Spec.GatusConfig.Metrics,
-		Storage:  instance.Spec.GatusConfig.Storage,
-		Alerting: instance.Spec.GatusConfig.Alerting,
 		// Announcements: , // TODO: via CRD
 		// Endpoints: , // TODO: via CRD / ingress/route/gateway annotations
 		// ExternalEndpoints: , // TODO: via CRD
-		Security:    instance.Spec.GatusConfig.Security,
-		Concurrency: instance.Spec.GatusConfig.Concurrency,
-		Web: &gatusiov1alpha1.GatusWebConfig{
-			ReadBufferSize: instance.Spec.GatusConfig.Web.ReadBufferSize,
-		},
-		Ui:          instance.Spec.GatusConfig.Ui,
-		Maintenance: instance.Spec.GatusConfig.Maintenance,
 		// Suites: , // TODO: via CRD
-		Connectivity: instance.Spec.GatusConfig.Connectivity,
+	}
+
+	if instance.Spec.GatusConfig.Metrics != nil {
+		gatus_config.Metrics = instance.Spec.GatusConfig.Metrics
+	}
+
+	if instance.Spec.GatusConfig.Storage != nil {
+		gatus_config.Storage = instance.Spec.GatusConfig.Storage
+	}
+
+	if instance.Spec.GatusConfig.Alerting != nil {
+		gatus_config.Alerting = instance.Spec.GatusConfig.Alerting
+	}
+
+	if instance.Spec.GatusConfig.Security != nil {
+		gatus_config.Security = instance.Spec.GatusConfig.Security
+	}
+
+	if instance.Spec.GatusConfig.Concurrency != nil {
+		gatus_config.Concurrency = instance.Spec.GatusConfig.Concurrency
+	}
+
+	if instance.Spec.GatusConfig.Web != nil {
+		gatus_config.Web = &gatusiov1alpha1.GatusWebConfig{}
+		if instance.Spec.GatusConfig.Web.ReadBufferSize != nil {
+			gatus_config.Web.ReadBufferSize = instance.Spec.GatusConfig.Web.ReadBufferSize
+		}
+	}
+
+	if instance.Spec.GatusConfig.Ui != nil {
+		gatus_config.Ui = instance.Spec.GatusConfig.Ui
+	}
+
+	if instance.Spec.GatusConfig.Maintenance != nil {
+		gatus_config.Maintenance = instance.Spec.GatusConfig.Maintenance
+	}
+
+	if instance.Spec.GatusConfig.Connectivity != nil {
+		gatus_config.Connectivity = instance.Spec.GatusConfig.Connectivity
 	}
 
 	yaml, err := yaml.Marshal(gatus_config)
@@ -440,7 +475,9 @@ func mutateConfig(instance *gatusiov1alpha1.Instance, obj *corev1.ConfigMap, sch
 		"config-hash": fmt.Sprintf("%x", hash),
 	}
 
-	obj.Data["config.yaml"] = configYaml
+	obj.Data = map[string]string{
+		"config.yaml": configYaml,
+	}
 
 	return nil
 }
