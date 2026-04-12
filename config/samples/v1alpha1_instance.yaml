@@ -1,4 +1,3 @@
-# yaml-language-server: $schema=../crd/bases/gatus.io_instances.yaml
 apiVersion: gatus.io/v1alpha1
 kind: Instance
 metadata:
@@ -15,3 +14,16 @@ spec:
     # ipFamilies:
     #   - "IPv4"
     #   - "IPv6"
+  gatus-config:
+    # metrics:
+    # alerting:
+    #   discord:
+    #     webhook-url: ""
+    # concurrency:
+    # connectivity:
+    # storage:
+    # security:
+    # web:
+    ui:
+      header: "My Status Page"
+    # maintenance:
