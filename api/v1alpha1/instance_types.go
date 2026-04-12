@@ -17,6 +17,9 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"slices"
+
+	gatusconfig "github.com/Jannik-Hm/Gatus-Operator/internal/gatus_config"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -57,7 +60,7 @@ type InstanceSpec struct {
 
 	// Global Gatus config
 	// +optional
-	GatusConfig GatusInstanceConfig `json:"gatus-config"`
+	GatusConfig GatusInstanceSpec `json:"gatus-config"`
 
 	// TODO: ingress?
 
@@ -136,7 +139,7 @@ type ServiceConfig struct {
 	IPFamilies []corev1.IPFamily `json:"ipFamilies,omitempty"`
 }
 
-type GatusInstanceConfig struct {
+type GatusInstanceSpec struct {
 	// Whether to expose metrics at /metrics.
 	// +optional
 	Metrics *bool `json:"metrics,omitempty"`
@@ -146,7 +149,7 @@ type GatusInstanceConfig struct {
 	// since config changes result in a rolling deployment change, that will clear all history
 	// to persist either use sqlite or postgres
 	// +optional
-	Storage *GatusStorageConfig `json:"storage,omitempty"` // TODO: custom struct to create VPC when type is `sqlite`
+	Storage *GatusStorageSpec `json:"storage,omitempty"` // TODO: custom struct to create VPC when type is `sqlite`
 
 	// Alerting Configuration (see https://github.com/TwiN/gatus/tree/master#alerting)
 	// +kubebuilder:pruning:PreserveUnknownFields
@@ -156,7 +159,7 @@ type GatusInstanceConfig struct {
 	// Security Configuration (see https://github.com/TwiN/gatus/tree/master#security)
 	// Note: there will be changes to simplify secret refs
 	// +optional
-	Security *GatusSecurityConfig `json:"security,omitempty"` // TODO: custom struct for CRD to allow secretRefs and do env substitution
+	Security *GatusSecuritySpec `json:"security,omitempty"` // TODO: custom struct for CRD to allow secretRefs and do env substitution
 
 	// Maximum number of endpoints/suites to monitor concurrently
 	// Set to 0 for unlimited (see https://github.com/TwiN/gatus/tree/master#concurrency)
@@ -165,27 +168,234 @@ type GatusInstanceConfig struct {
 	// Web Configuration
 	// If you experience `431 Request Header Fields Too Large error`, increase this value (default is 8192, as of 2026-04-10)
 	// +optional
-	Web *GatusInstanceWebConfig `json:"web,omitempty"`
+	Web *GatusInstanceWebSpec `json:"web,omitempty"`
 
 	// UI Configuration (see https://github.com/TwiN/gatus/tree/master#ui)
 	// +optional
-	Ui *GatusUiConfig `json:"ui,omitempty"`
+	Ui *GatusUiSpec `json:"ui,omitempty"`
 
 	// Maintenance Configuration (see https://github.com/TwiN/gatus/tree/master#maintenance)
 	// +optional
-	Maintenance *GatusMaintenanceConfig `json:"maintenance,omitempty"`
+	Maintenance *GatusMaintenanceSpec `json:"maintenance,omitempty"`
 
 	// Connectivity Configuration (see https://github.com/TwiN/gatus/tree/master#connectivity)
 	// Used to check wether the connection of Gatus itself is broken
 	// All endpoint executions are skipped while the connectivity checker deems connectivity to be down
 	// +optional
-	Connectivity *GatusConnectivityConfig `json:"connectivity,omitempty"`
+	Connectivity *GatusConnectivitySpec `json:"connectivity,omitempty"`
 }
 
-type GatusInstanceWebConfig struct {
+type GatusStorageSpec struct {
+	// +kubebuilder:validation:Enum:=memory;sqlite;postgres
+	// +optional
+	Type              *gatusconfig.GatusStorageType `json:"type,omitempty"`
+	Path              *string                       `json:"path,omitempty"`
+	Caching           *bool                         `json:"caching,omitempty"`
+	MaximumResultsNum *int32                        `json:"maximum-number-of-results,omitempty"`
+	MaximumEventsNum  *int32                        `json:"maximum-number-of-events,omitempty"`
+}
+
+func (spec *GatusStorageSpec) ToGatusConfig() *gatusconfig.GatusStorageConfig {
+	if spec == nil {
+		return nil
+	}
+	return &gatusconfig.GatusStorageConfig{
+		Type:              spec.Type,
+		Path:              spec.Path,
+		Caching:           spec.Caching,
+		MaximumResultsNum: spec.MaximumResultsNum,
+		MaximumEventsNum:  spec.MaximumEventsNum,
+	}
+}
+
+type GatusSecuritySpec struct {
+	Basic *GatusSecurityBasicSpec `json:"basic,omitempty"`
+	OIDC  *GatusSecurityOIDCSpec  `json:"oidc,omitempty"`
+}
+
+func (spec *GatusSecuritySpec) ToGatusConfig() *gatusconfig.GatusSecurityConfig {
+	if spec == nil {
+		return nil
+	}
+	return &gatusconfig.GatusSecurityConfig{
+		Basic: spec.Basic.ToGatusConfig(),
+		OIDC:  spec.OIDC.ToGatusConfig(),
+	}
+}
+
+type GatusSecurityBasicSpec struct {
+	Username string `json:"username"`               //TODO: secret refs
+	PassHash string `json:"password-bcrypt-base64"` //TODO: secret refs
+}
+
+func (spec *GatusSecurityBasicSpec) ToGatusConfig() *gatusconfig.GatusSecurityBasicConfig {
+	if spec == nil {
+		return nil
+	}
+	return &gatusconfig.GatusSecurityBasicConfig{
+		Username: spec.Username,
+		PassHash: spec.PassHash,
+	}
+}
+
+type GatusSecurityOIDCSpec struct {
+	IssuerURL       string   `json:"issuer-url"`                 //TODO: secret refs
+	RedirectURL     string   `json:"redirect-url"`               //TODO: secret refs
+	ClientID        string   `json:"client-id"`                  //TODO: secret refs
+	ClientSecret    string   `json:"client-secret"`              //TODO: secret refs
+	Scopes          []string `json:"scopes,omitempty"`           //TODO: secret refs
+	AllowedSubjects []string `json:"allowed-subjects,omitempty"` //TODO: secret refs
+	SessionTTL      *string  `json:"session-ttl,omitempty"`
+}
+
+func (spec *GatusSecurityOIDCSpec) ToGatusConfig() *gatusconfig.GatusSecurityOIDCConfig {
+	if spec == nil {
+		return nil
+	}
+	return &gatusconfig.GatusSecurityOIDCConfig{
+		IssuerURL:       spec.IssuerURL,
+		RedirectURL:     spec.RedirectURL,
+		ClientID:        spec.ClientID,
+		ClientSecret:    spec.ClientSecret,
+		Scopes:          slices.Clone(spec.Scopes),
+		AllowedSubjects: slices.Clone(spec.AllowedSubjects),
+		SessionTTL:      spec.SessionTTL,
+	}
+}
+
+type GatusInstanceWebSpec struct {
 	ReadBufferSize *int32 `json:"read-buffer-size,omitempty"`
 
 	// settings such as port or listen address should not be user adjustable
+}
+
+func (spec *GatusInstanceWebSpec) ToGatusConfig() *gatusconfig.GatusWebConfig {
+	if spec == nil {
+		return nil
+	}
+	return &gatusconfig.GatusWebConfig{
+		ReadBufferSize: spec.ReadBufferSize,
+	}
+}
+
+type GatusUiSpec struct {
+	Title               *string              `json:"title,omitempty"`
+	Description         *string              `json:"description,omitempty"`
+	DashboardHeading    *string              `json:"dashboard-heading,omitempty"`
+	DashboardSubheading *string              `json:"dashboard-subheading,omitempty"`
+	Header              *string              `json:"header,omitempty"`
+	Logo                *string              `json:"logo,omitempty"`
+	Link                *string              `json:"link,omitempty"`
+	Favicon             *GatusUiFaviconSpec  `json:"favicon,omitempty"`
+	Buttons             []*GatusUiButtonSpec `json:"buttons,omitempty"`
+	CustomCSS           *string              `json:"custom-css,omitempty"`
+	Darkmode            *bool                `json:"dark-mode,omitempty"`
+	DefaultSortBy       *string              `json:"default-sort-by,omitempty"`
+	DefaultFilterBy     *string              `json:"default-filter-by,omitempty"`
+	LoginSubtitle       *string              `json:"login-subtitle,omitempty"`
+}
+
+func (spec *GatusUiSpec) ToGatusConfig() *gatusconfig.GatusUiConfig {
+	if spec == nil {
+		return nil
+	}
+	return &gatusconfig.GatusUiConfig{
+		Title:               spec.Title,
+		Description:         spec.Description,
+		DashboardHeading:    spec.DashboardHeading,
+		DashboardSubheading: spec.DashboardSubheading,
+		Header:              spec.Header,
+		Logo:                spec.Logo,
+		Link:                spec.Link,
+		Favicon:             spec.Favicon.ToGatusConfig(),
+		Buttons:             ToGatusConfigList(spec.Buttons),
+		CustomCSS:           spec.CustomCSS,
+		Darkmode:            spec.Darkmode,
+		DefaultSortBy:       spec.DefaultSortBy,
+		DefaultFilterBy:     spec.DefaultFilterBy,
+		LoginSubtitle:       spec.LoginSubtitle,
+	}
+}
+
+type GatusUiFaviconSpec struct {
+	Default   *string `json:"default,omitempty"`
+	Size16x16 *string `json:"size16x16,omitempty"`
+	Size32x32 *string `json:"size32x32,omitempty"`
+}
+
+func (spec *GatusUiFaviconSpec) ToGatusConfig() *gatusconfig.GatusUiFaviconConfig {
+	if spec == nil {
+		return nil
+	}
+	return &gatusconfig.GatusUiFaviconConfig{
+		Default:   spec.Default,
+		Size16x16: spec.Size16x16,
+		Size32x32: spec.Size32x32,
+	}
+}
+
+type GatusUiButtonSpec struct {
+	Name string `json:"name"`
+	Link string `json:"link"`
+}
+
+func (spec *GatusUiButtonSpec) ToGatusConfig() *gatusconfig.GatusUiButtonConfig {
+	if spec == nil {
+		return nil
+	}
+	return &gatusconfig.GatusUiButtonConfig{
+		Name: spec.Name,
+		Link: spec.Link,
+	}
+}
+
+type GatusMaintenanceSpec struct {
+	Enabled  *bool    `json:"enabled,omitempty"`
+	Start    string   `json:"start"`
+	Duration string   `json:"duration"`
+	Timezone *string  `json:"timezone,omitempty"`
+	Every    []string `json:"every,omitempty"`
+}
+
+func (spec *GatusMaintenanceSpec) ToGatusConfig() *gatusconfig.GatusMaintenanceConfig {
+	if spec == nil {
+		return nil
+	}
+	return &gatusconfig.GatusMaintenanceConfig{
+		Enabled:  spec.Enabled,
+		Start:    spec.Start,
+		Duration: spec.Duration,
+		Timezone: spec.Timezone,
+		Every:    spec.Every,
+	}
+}
+
+type GatusConnectivitySpec struct {
+	Checker GatusConnectivityCheckerSpec `json:"checker"`
+}
+
+func (spec *GatusConnectivitySpec) ToGatusConfig() *gatusconfig.GatusConnectivityConfig {
+	if spec == nil {
+		return nil
+	}
+	return &gatusconfig.GatusConnectivityConfig{
+		Checker: *spec.Checker.ToGatusConfig(),
+	}
+}
+
+type GatusConnectivityCheckerSpec struct {
+	Target   string  `json:"target"`
+	Interval *string `json:"interval,omitempty"`
+}
+
+func (spec *GatusConnectivityCheckerSpec) ToGatusConfig() *gatusconfig.GatusConnectivityCheckerConfig {
+	if spec == nil {
+		return nil
+	}
+	return &gatusconfig.GatusConnectivityCheckerConfig{
+		Target:   spec.Target,
+		Interval: spec.Interval,
+	}
 }
 
 // +kubebuilder:object:root=true
