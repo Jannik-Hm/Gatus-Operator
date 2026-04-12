@@ -14,6 +14,9 @@ endif
 # tools. (i.e. podman)
 CONTAINER_TOOL ?= docker
 
+# name of the kind cluster to create/use
+KIND_CLUSTER ?= gatus-operator
+
 # Setting SHELL to bash allows bash commands to be executed by recipes.
 # Options are set to exit when a recipe line exits non-zero or a piped command fails.
 SHELL = /usr/bin/env bash -o pipefail
@@ -162,9 +165,16 @@ uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified 
 	@out="$$( "$(KUSTOMIZE)" build config/crd 2>/dev/null || true )"; \
 	if [ -n "$$out" ]; then echo "$$out" | "$(KUBECTL)" delete --ignore-not-found=$(ignore-not-found) -f -; else echo "No CRDs to delete; skipping."; fi
 
+# podman is so nice to prepend `localhost/` to locally built images...
+ifeq ($(CONTAINER_TOOL), podman)
+    DEPLOY_IMG=localhost/$(IMG)
+else
+    DEPLOY_IMG=IMG
+endif
+
 .PHONY: deploy
 deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in ~/.kube/config.
-	cd config/manager && "$(KUSTOMIZE)" edit set image controller=${IMG}
+	cd config/manager && "$(KUSTOMIZE)" edit set image controller=${DEPLOY_IMG}
 	"$(KUSTOMIZE)" build config/default | "$(KUBECTL)" apply -f -
 
 .PHONY: undeploy
@@ -256,16 +266,29 @@ endef
 
 .PHONY: create-cluster
 create-cluster:
-	@kind create cluster --config hack/kind-config.yaml --name gatus-operator
+	@kind create cluster --config hack/kind-config.yaml --name $(KIND_CLUSTER)
 	@echo ""
 	@hack/kind-cluster-setup.sh kind-gatus-operator
 
 .PHONY: delete-cluster
 delete-cluster:
-	kind delete cluster --name gatus-operator
+	kind delete cluster --name $(KIND_CLUSTER)
 
-copy-podman-image:
-	bash -c 'TMPFILE=$$(mktemp); podman save -o $$TMPFILE $(IMG); kind load image-archive $$TMPFILE --name gatus-operator; echo "removing $$TMPFILE again"; rm $$TMPFILE'
+ifeq ($(CONTAINER_TOOL), podman)
+    LOAD_COMMAND = TMPFILE=$$(mktemp); \
+                   podman save -o $$TMPFILE $(IMG); \
+                   kind load image-archive $$TMPFILE --name $(KIND_CLUSTER); \
+									 echo "removing $$TMPFILE again"; \
+                   rm $$TMPFILE
+else ifeq ($(CONTAINER_TOOL), docker)
+    LOAD_COMMAND = kind load docker-image $(IMG) --name $(KIND_CLUSTER)
+else
+    $(error Unsupported CONTAINER_TOOL: $(CONTAINER_TOOL))
+endif
+
+copy-image:
+	@echo "Loading image using $(CONTAINER_TOOL)..."
+	@$(LOAD_COMMAND)
 
 .PHONY: wait-cert-manager
 wait-cert-manager:
@@ -275,7 +298,10 @@ wait-cert-manager:
 	@# A tiny 2-second sleep here is often more reliable than a 10-second blind sleep.
 	@sleep 2
 
-# podman is so nice to prepend `localhost/` to locally built images...
+.PHONY: kind-run
+kind-run:
+	bash -c 'make generate; make manifests; make docker-build; make create-cluster; make install; make copy-image; make wait-cert-manager; make deploy'
+
 .PHONY: kind-podman-run
 kind-podman-run:
-	bash -c 'make generate; make manifests; make docker-build CONTAINER_TOOL=podman; make create-cluster; make install; make copy-podman-image; make wait-cert-manager; make deploy IMG=localhost/$(IMG)'
+	@bash -c 'make kind-run CONTAINER_TOOL=podman'
