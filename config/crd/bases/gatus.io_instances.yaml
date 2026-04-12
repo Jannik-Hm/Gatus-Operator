@@ -161,6 +161,10 @@ spec:
                       path:
                         type: string
                       type:
+                        enum:
+                        - memory
+                        - sqlite
+                        - postgres
                         type: string
                     type: object
                   ui:
@@ -192,6 +196,15 @@ spec:
                         type: string
                       description:
                         type: string
+                      favicon:
+                        properties:
+                          default:
+                            type: string
+                          size16x16:
+                            type: string
+                          size32x32:
+                            type: string
+                        type: object
                       header:
                         type: string
                       link:

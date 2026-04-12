@@ -3,6 +3,7 @@
 # It should be run by config/default
 resources:
 - bases/gatus.io_instances.yaml
+- bases/gatus.io_endpoints.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 
 patches:

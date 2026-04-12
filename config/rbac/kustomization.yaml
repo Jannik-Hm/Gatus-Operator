@@ -22,6 +22,9 @@ resources:
 # default, aiding admins in cluster management. Those roles are
 # not used by the projects itself. You can comment the following lines
 # if you do not want those helpers be installed with your Project.
+- endpoint_admin_role.yaml
+- endpoint_editor_role.yaml
+- endpoint_viewer_role.yaml
 - instance_admin_role.yaml
 - instance_editor_role.yaml
 - instance_viewer_role.yaml
