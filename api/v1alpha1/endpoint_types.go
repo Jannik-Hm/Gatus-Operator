@@ -35,6 +35,13 @@ type EndpointSpec struct {
 	// The following markers will use OpenAPI v3 schema to validate the value
 	// More info: https://book.kubebuilder.io/reference/markers/crd-validation.html
 
+	InstanceReference `json:",inline"`
+
+	// +required
+	Config EndpointConfigSpec `json:"config"`
+}
+
+type EndpointConfigSpec struct {
 	//+optional
 	Enabled *bool `json:"enabled,omitempty"`
 
@@ -87,7 +94,7 @@ type EndpointSpec struct {
 	ExtraLabels map[string]string `json:"extra-labels,omitempty"`
 }
 
-func (spec *EndpointSpec) ToGatusConfig() *gatusconfig.GatusEndpointConfig {
+func (spec *EndpointConfigSpec) ToGatusConfig() *gatusconfig.GatusEndpointConfig {
 	if spec == nil {
 		return nil
 	}
@@ -348,6 +355,14 @@ type Endpoint struct {
 	// status defines the observed state of Endpoint
 	// +optional
 	Status EndpointStatus `json:"status,omitzero"`
+}
+
+func (crd *Endpoint) GetInstanceName() string {
+	return crd.Spec.Instance.Name
+}
+
+func (crd *Endpoint) GetInstanceNamespace() *string {
+	return crd.Spec.Instance.Namespace
 }
 
 // +kubebuilder:object:root=true

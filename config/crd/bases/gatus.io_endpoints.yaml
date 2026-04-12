@@ -39,181 +39,200 @@ spec:
           spec:
             description: spec defines the desired state of Endpoint
             properties:
-              alerts:
-                items:
-                  properties:
-                    description:
-                      type: string
-                    enabled:
-                      type: boolean
-                    failure-threshold:
-                      format: int32
-                      type: integer
-                    minimum-reminder-interval:
-                      type: string
-                    provider-override:
-                      additionalProperties:
-                        type: object
-                        x-kubernetes-preserve-unknown-fields: true
-                      type: object
-                      x-kubernetes-preserve-unknown-fields: true
-                    send-on-resolved:
-                      type: boolean
-                    success-threshold:
-                      format: int32
-                      type: integer
-                    type:
-                      type: string
-                  required:
-                  - type
-                  type: object
-                type: array
-              body:
-                type: string
-              client:
+              config:
                 properties:
-                  dns-resolver:
-                    type: string
-                  identity-aware-proxy:
-                    properties:
-                      audience:
-                        type: string
-                    required:
-                    - audience
-                    type: object
-                  ignore-redirect:
-                    type: boolean
-                  insecure:
-                    type: boolean
-                  network:
-                    type: string
-                  oauth2:
-                    properties:
-                      client-id:
-                        type: string
-                      client-secret:
-                        type: string
-                      scopes:
-                        items:
+                  alerts:
+                    items:
+                      properties:
+                        description:
                           type: string
-                        type: array
-                      token-url:
+                        enabled:
+                          type: boolean
+                        failure-threshold:
+                          format: int32
+                          type: integer
+                        minimum-reminder-interval:
+                          type: string
+                        provider-override:
+                          additionalProperties:
+                            type: object
+                            x-kubernetes-preserve-unknown-fields: true
+                          type: object
+                          x-kubernetes-preserve-unknown-fields: true
+                        send-on-resolved:
+                          type: boolean
+                        success-threshold:
+                          format: int32
+                          type: integer
+                        type:
+                          type: string
+                      required:
+                      - type
+                      type: object
+                    type: array
+                  body:
+                    type: string
+                  client:
+                    properties:
+                      dns-resolver:
+                        type: string
+                      identity-aware-proxy:
+                        properties:
+                          audience:
+                            type: string
+                        required:
+                        - audience
+                        type: object
+                      ignore-redirect:
+                        type: boolean
+                      insecure:
+                        type: boolean
+                      network:
+                        type: string
+                      oauth2:
+                        properties:
+                          client-id:
+                            type: string
+                          client-secret:
+                            type: string
+                          scopes:
+                            items:
+                              type: string
+                            type: array
+                          token-url:
+                            type: string
+                        required:
+                        - client-id
+                        - client-secret
+                        - scopes
+                        - token-url
+                        type: object
+                      proxy-url:
+                        type: string
+                      timeout:
+                        type: string
+                      tls:
+                        properties:
+                          certificate-file:
+                            type: string
+                          private-key-file:
+                            type: string
+                          renegotiation:
+                            type: string
+                        type: object
+                    type: object
+                  conditions:
+                    items:
+                      type: string
+                    type: array
+                  dns:
+                    properties:
+                      query-name:
+                        type: string
+                      query-type:
+                        type: string
+                    type: object
+                  enabled:
+                    type: boolean
+                  extra-labels:
+                    additionalProperties:
+                      type: string
+                    type: object
+                  graphql:
+                    type: boolean
+                  group:
+                    type: string
+                  headers:
+                    additionalProperties:
+                      type: string
+                    type: object
+                  interval:
+                    type: string
+                  maintenance-windows:
+                    items:
+                      properties:
+                        duration:
+                          type: string
+                        enabled:
+                          type: boolean
+                        every:
+                          items:
+                            type: string
+                          type: array
+                        start:
+                          type: string
+                        timezone:
+                          type: string
+                      required:
+                      - duration
+                      - start
+                      type: object
+                    type: array
+                  method:
+                    type: string
+                  name:
+                    type: string
+                  ssh:
+                    properties:
+                      password:
+                        type: string
+                      username:
                         type: string
                     required:
-                    - client-id
-                    - client-secret
-                    - scopes
-                    - token-url
+                    - password
+                    - username
                     type: object
-                  proxy-url:
-                    type: string
-                  timeout:
-                    type: string
-                  tls:
+                  ui:
                     properties:
-                      certificate-file:
-                        type: string
-                      private-key-file:
-                        type: string
-                      renegotiation:
-                        type: string
+                      badge:
+                        properties:
+                          response-time:
+                            properties:
+                              thresholds:
+                                items:
+                                  format: int32
+                                  type: integer
+                                type: array
+                            type: object
+                        type: object
+                      dont-resolve-failed-conditions:
+                        type: boolean
+                      hide-conditions:
+                        type: boolean
+                      hide-errors:
+                        type: boolean
+                      hide-hostname:
+                        type: boolean
+                      hide-port:
+                        type: boolean
+                      hide-url:
+                        type: boolean
+                      resolve-successful-conditions:
+                        type: boolean
                     type: object
-                type: object
-              conditions:
-                items:
-                  type: string
-                type: array
-              dns:
-                properties:
-                  query-name:
-                    type: string
-                  query-type:
-                    type: string
-                type: object
-              enabled:
-                type: boolean
-              extra-labels:
-                additionalProperties:
-                  type: string
-                type: object
-              graphql:
-                type: boolean
-              group:
-                type: string
-              headers:
-                additionalProperties:
-                  type: string
-                type: object
-              interval:
-                type: string
-              maintenance-windows:
-                items:
-                  properties:
-                    duration:
-                      type: string
-                    enabled:
-                      type: boolean
-                    every:
-                      items:
-                        type: string
-                      type: array
-                    start:
-                      type: string
-                    timezone:
-                      type: string
-                  required:
-                  - duration
-                  - start
-                  type: object
-                type: array
-              method:
-                type: string
-              name:
-                type: string
-              ssh:
-                properties:
-                  password:
-                    type: string
-                  username:
+                  url:
                     type: string
                 required:
-                - password
-                - username
+                - conditions
+                - name
+                - url
                 type: object
-              ui:
+              instance:
+                description: The Gatus Instance that this Config should be applied
+                  to
                 properties:
-                  badge:
-                    properties:
-                      response-time:
-                        properties:
-                          thresholds:
-                            items:
-                              format: int32
-                              type: integer
-                            type: array
-                        type: object
-                    type: object
-                  dont-resolve-failed-conditions:
-                    type: boolean
-                  hide-conditions:
-                    type: boolean
-                  hide-errors:
-                    type: boolean
-                  hide-hostname:
-                    type: boolean
-                  hide-port:
-                    type: boolean
-                  hide-url:
-                    type: boolean
-                  resolve-successful-conditions:
-                    type: boolean
+                  name:
+                    description: Name of the Instance
+                    type: string
+                  namespace:
+                    description: Namespace of the Instance
+                    type: string
+                required:
+                - name
                 type: object
-              url:
-                type: string
             required:
-            - conditions
-            - name
-            - url
+            - config
+            - instance
             type: object
           status:
             description: status defines the observed state of Endpoint
