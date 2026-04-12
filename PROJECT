@@ -29,4 +29,25 @@ resources:
   kind: Endpoint
   path: github.com/Jannik-Hm/Gatus-Operator/api/v1alpha1
   version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: true
+  domain: gatus.io
+  kind: Announcement
+  path: github.com/Jannik-Hm/Gatus-Operator/api/v1alpha1
+  version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: true
+  domain: gatus.io
+  kind: ExternalEndpoint
+  path: github.com/Jannik-Hm/Gatus-Operator/api/v1alpha1
+  version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: true
+  domain: gatus.io
+  kind: Suite
+  path: github.com/Jannik-Hm/Gatus-Operator/api/v1alpha1
+  version: v1alpha1
 version: "3"

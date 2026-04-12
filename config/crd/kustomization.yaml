@@ -4,6 +4,9 @@
 resources:
 - bases/gatus.io_instances.yaml
 - bases/gatus.io_endpoints.yaml
+- bases/gatus.io_announcements.yaml
+- bases/gatus.io_externalendpoints.yaml
+- bases/gatus.io_suites.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 
 patches:

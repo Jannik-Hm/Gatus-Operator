@@ -73,7 +73,7 @@ type GatusExternalEndpointConfig struct {
 	Name      string                               `json:"name"`
 	Group     *string                              `json:"group,omitempty"`
 	Token     string                               `json:"token"`
-	Alerts    []GatusEndpointAlertConfig           `json:"alerts,omitempty"`
+	Alerts    []*GatusEndpointAlertConfig          `json:"alerts,omitempty"`
 	Heartbeat GatusExternalEndpointHeartbeatConfig `json:"heartbeat"`
 }
 

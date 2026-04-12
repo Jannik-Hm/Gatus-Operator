@@ -11,5 +11,5 @@ type GatusSuiteConfig struct {
 
 	// +kubebuilder:pruning:PreserveUnknownFields
 	Context   map[string]runtime.RawExtension `json:"context,omitempty"`
-	Endpoints []GatusEndpointConfig           `json:"endpoints,omitempty"`
+	Endpoints []*GatusEndpointConfig          `json:"endpoints,omitempty"`
 }

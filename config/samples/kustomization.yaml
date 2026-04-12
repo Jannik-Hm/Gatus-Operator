@@ -3,4 +3,7 @@ resources:
 - v1alpha1_instance.yaml
 - test-service.yaml
 - v1alpha1_endpoint.yaml
+- v1alpha1_announcement.yaml
+- v1alpha1_externalendpoint.yaml
+- v1alpha1_suite.yaml
 # +kubebuilder:scaffold:manifestskustomizesamples
