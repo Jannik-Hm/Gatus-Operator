@@ -44,8 +44,10 @@ type InstanceSpec struct {
 	ServiceName *string `json:"serviceName,omitempty"`
 
 	// Number of Gatus Instance Replicas, defaults to 1
+	// Currently limiting to 1 replica max as gatus currently does not support HA
 	// +kubebuilder:default:=1
 	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=1
 	// +optional
 	Replicas *int32 `json:"replicas,omitempty"`
 
@@ -106,7 +108,7 @@ type InstanceStatus struct {
 	LastSuccessfulConfigmapHash string `json:"lastSuccessfulConfigmapHash,omitempty"`
 
 	// Current status
-	// +kubebuilder:validation:Enum=Pending;Running;Failed
+	// +kubebuilder:validation:Enum:=Pending;Running;Failed
 	// +kubebuilder:default:=Pending
 	Status string `json:"status"`
 }

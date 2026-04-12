@@ -238,6 +238,7 @@ spec:
                 default: 1
                 description: Number of Gatus Instance Replicas, defaults to 1
                 format: int32
+                maximum: 1
                 minimum: 0
                 type: integer
               service:
