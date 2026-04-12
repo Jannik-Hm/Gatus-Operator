@@ -34,13 +34,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/yaml"
 
-	"github.com/Jannik-Hm/Gatus-Operator/api/v1alpha1"
 	gatusiov1alpha1 "github.com/Jannik-Hm/Gatus-Operator/api/v1alpha1"
 	"github.com/Jannik-Hm/Gatus-Operator/internal/config"
+	gatusconfig "github.com/Jannik-Hm/Gatus-Operator/internal/gatus_config"
 )
 
 // InstanceReconciler reconciles a Instance object
@@ -56,6 +57,9 @@ type InstanceReconciler struct {
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=gatus.io,resources=endpoints,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=gatus.io,resources=endpoints/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=gatus.io,resources=endpoints/finalizers,verbs=update
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -68,6 +72,8 @@ type InstanceReconciler struct {
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.23.3/pkg/reconcile
 func (r *InstanceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
+
+	log.Info("Reconciling Instance", "Name", req.Name, "Namespace", req.Namespace)
 
 	var instance gatusiov1alpha1.Instance
 	if err := r.Get(ctx, req.NamespacedName, &instance); err != nil {
@@ -83,7 +89,7 @@ func (r *InstanceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	// create/update config
-	configYaml, err := generateConfigString(&instance)
+	configYaml, err := r.generateConfigString(ctx, req, &instance)
 
 	if err != nil {
 		log.Error(err, "Failed to create Configmap")
@@ -233,11 +239,31 @@ func (r *InstanceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *InstanceReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &gatusiov1alpha1.Endpoint{}, gatusiov1alpha1.InstanceNameReferenceKey, func(rawObj client.Object) []string {
+		// grab the endpoint object, extract the instance...
+		endpoint := rawObj.(*gatusiov1alpha1.Endpoint)
+		return []string{endpoint.Spec.Instance.Name}
+	}); err != nil {
+		return err
+	}
+	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &gatusiov1alpha1.Endpoint{}, gatusiov1alpha1.InstanceNamespaceReferenceKey, func(rawObj client.Object) []string {
+		// grab the endpoint object, extract the instance...
+		endpoint := rawObj.(*gatusiov1alpha1.Endpoint)
+		if endpoint.Spec.Instance.Namespace != nil {
+			return []string{*endpoint.Spec.Instance.Namespace}
+		}
+		// fallback to own namespace
+		return []string{endpoint.Namespace}
+	}); err != nil {
+		return err
+	}
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&gatusiov1alpha1.Instance{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Owns(&appsv1.Deployment{}).
 		Owns(&corev1.Service{}).
 		Owns(&corev1.ConfigMap{}).
+		Watches(&gatusiov1alpha1.Endpoint{}, handler.EnqueueRequestsFromMapFunc(gatusiov1alpha1.MapRessourceToInstance)).
 		Named("instance").
 		Complete(r)
 }
@@ -396,51 +422,38 @@ func mutateService(instance *gatusiov1alpha1.Instance, obj *corev1.Service, sche
 	return nil
 }
 
-func generateConfigString(instance *gatusiov1alpha1.Instance) (string, error) {
-	gatus_config := v1alpha1.GatusConfig{
+func (r *InstanceReconciler) generateConfigString(ctx context.Context, req ctrl.Request, instance *gatusiov1alpha1.Instance) (string, error) {
+	log := logf.FromContext(ctx)
+
+	var endpoints gatusiov1alpha1.EndpointList
+	if err := r.List(ctx, &endpoints,
+		client.MatchingFields{
+			gatusiov1alpha1.InstanceNameReferenceKey:      req.Name,
+			gatusiov1alpha1.InstanceNamespaceReferenceKey: req.Namespace,
+		},
+	); err != nil {
+		log.Error(err, "unable to list endpoints")
+	}
+
+	gatus_config := gatusconfig.Config{
+		Metrics:  instance.Spec.GatusConfig.Metrics,
+		Storage:  instance.Spec.GatusConfig.Storage.ToGatusConfig(),
+		Alerting: instance.Spec.GatusConfig.Alerting,
 		// Announcements: , // TODO: via CRD
 		// Endpoints: , // TODO: via CRD / ingress/route/gateway annotations
 		// ExternalEndpoints: , // TODO: via CRD
+		Security:    instance.Spec.GatusConfig.Security.ToGatusConfig(),
+		Concurrency: instance.Spec.GatusConfig.Concurrency,
+		Web:         instance.Spec.GatusConfig.Web.ToGatusConfig(),
+		Ui:          instance.Spec.GatusConfig.Ui.ToGatusConfig(),
+		Maintenance: instance.Spec.GatusConfig.Maintenance.ToGatusConfig(),
 		// Suites: , // TODO: via CRD
+		Connectivity: instance.Spec.GatusConfig.Connectivity.ToGatusConfig(),
 	}
 
-	if instance.Spec.GatusConfig.Metrics != nil {
-		gatus_config.Metrics = instance.Spec.GatusConfig.Metrics
-	}
-
-	if instance.Spec.GatusConfig.Storage != nil {
-		gatus_config.Storage = instance.Spec.GatusConfig.Storage
-	}
-
-	if instance.Spec.GatusConfig.Alerting != nil {
-		gatus_config.Alerting = instance.Spec.GatusConfig.Alerting
-	}
-
-	if instance.Spec.GatusConfig.Security != nil {
-		gatus_config.Security = instance.Spec.GatusConfig.Security
-	}
-
-	if instance.Spec.GatusConfig.Concurrency != nil {
-		gatus_config.Concurrency = instance.Spec.GatusConfig.Concurrency
-	}
-
-	if instance.Spec.GatusConfig.Web != nil {
-		gatus_config.Web = &gatusiov1alpha1.GatusWebConfig{}
-		if instance.Spec.GatusConfig.Web.ReadBufferSize != nil {
-			gatus_config.Web.ReadBufferSize = instance.Spec.GatusConfig.Web.ReadBufferSize
-		}
-	}
-
-	if instance.Spec.GatusConfig.Ui != nil {
-		gatus_config.Ui = instance.Spec.GatusConfig.Ui
-	}
-
-	if instance.Spec.GatusConfig.Maintenance != nil {
-		gatus_config.Maintenance = instance.Spec.GatusConfig.Maintenance
-	}
-
-	if instance.Spec.GatusConfig.Connectivity != nil {
-		gatus_config.Connectivity = instance.Spec.GatusConfig.Connectivity
+	gatus_config.Endpoints = make([]gatusconfig.GatusEndpointConfig, 0, len(endpoints.Items))
+	for _, endpoint := range endpoints.Items {
+		gatus_config.Endpoints = append(gatus_config.Endpoints, *endpoint.Spec.Config.ToGatusConfig())
 	}
 
 	yaml, err := yaml.Marshal(gatus_config)

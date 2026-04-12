@@ -32,6 +32,7 @@ rules:
 - apiGroups:
   - gatus.io
   resources:
+  - endpoints
   - instances
   verbs:
   - create
@@ -44,12 +45,14 @@ rules:
 - apiGroups:
   - gatus.io
   resources:
+  - endpoints/finalizers
   - instances/finalizers
   verbs:
   - update
 - apiGroups:
   - gatus.io
   resources:
+  - endpoints/status
   - instances/status
   verbs:
   - get
