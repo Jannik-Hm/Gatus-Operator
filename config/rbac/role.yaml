@@ -32,8 +32,11 @@ rules:
 - apiGroups:
   - gatus.io
   resources:
+  - announcements
   - endpoints
+  - externalendpoints
   - instances
+  - suites
   verbs:
   - create
   - delete
@@ -45,15 +48,21 @@ rules:
 - apiGroups:
   - gatus.io
   resources:
+  - announcements/finalizers
   - endpoints/finalizers
+  - externalendpoints/finalizers
   - instances/finalizers
+  - suites/finalizers
   verbs:
   - update
 - apiGroups:
   - gatus.io
   resources:
+  - announcements/status
   - endpoints/status
+  - externalendpoints/status
   - instances/status
+  - suites/status
   verbs:
   - get
   - patch

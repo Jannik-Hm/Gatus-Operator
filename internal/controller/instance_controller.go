@@ -54,12 +54,26 @@ type InstanceReconciler struct {
 // +kubebuilder:rbac:groups=gatus.io,resources=instances,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=gatus.io,resources=instances/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=gatus.io,resources=instances/finalizers,verbs=update
+
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;patch;delete
+
 // +kubebuilder:rbac:groups=gatus.io,resources=endpoints,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=gatus.io,resources=endpoints/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=gatus.io,resources=endpoints/finalizers,verbs=update
+
+// +kubebuilder:rbac:groups=gatus.io,resources=externalendpoints,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=gatus.io,resources=externalendpoints/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=gatus.io,resources=externalendpoints/finalizers,verbs=update
+
+// +kubebuilder:rbac:groups=gatus.io,resources=announcements,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=gatus.io,resources=announcements/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=gatus.io,resources=announcements/finalizers,verbs=update
+
+// +kubebuilder:rbac:groups=gatus.io,resources=suites,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=gatus.io,resources=suites/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=gatus.io,resources=suites/finalizers,verbs=update
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -239,23 +253,20 @@ func (r *InstanceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *InstanceReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &gatusiov1alpha1.Endpoint{}, gatusiov1alpha1.InstanceNameReferenceKey, func(rawObj client.Object) []string {
-		// grab the endpoint object, extract the instance...
-		endpoint := rawObj.(*gatusiov1alpha1.Endpoint)
-		return []string{endpoint.Spec.Instance.Name}
-	}); err != nil {
-		return err
+	if err := r.registerIndices(mgr, &gatusiov1alpha1.Endpoint{}); err != nil {
+		return fmt.Errorf("Could not register Endpoint Indices: %s", err)
 	}
-	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &gatusiov1alpha1.Endpoint{}, gatusiov1alpha1.InstanceNamespaceReferenceKey, func(rawObj client.Object) []string {
-		// grab the endpoint object, extract the instance...
-		endpoint := rawObj.(*gatusiov1alpha1.Endpoint)
-		if endpoint.Spec.Instance.Namespace != nil {
-			return []string{*endpoint.Spec.Instance.Namespace}
-		}
-		// fallback to own namespace
-		return []string{endpoint.Namespace}
-	}); err != nil {
-		return err
+
+	if err := r.registerIndices(mgr, &gatusiov1alpha1.ExternalEndpoint{}); err != nil {
+		return fmt.Errorf("Could not register ExternalEndpoint Indices: %s", err)
+	}
+
+	if err := r.registerIndices(mgr, &gatusiov1alpha1.Announcement{}); err != nil {
+		return fmt.Errorf("Could not register Announcement Indices: %s", err)
+	}
+
+	if err := r.registerIndices(mgr, &gatusiov1alpha1.Suite{}); err != nil {
+		return fmt.Errorf("Could not register Suite Indices: %s", err)
 	}
 
 	return ctrl.NewControllerManagedBy(mgr).
@@ -264,8 +275,33 @@ func (r *InstanceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&corev1.Service{}).
 		Owns(&corev1.ConfigMap{}).
 		Watches(&gatusiov1alpha1.Endpoint{}, handler.EnqueueRequestsFromMapFunc(gatusiov1alpha1.MapRessourceToInstance)).
+		Watches(&gatusiov1alpha1.ExternalEndpoint{}, handler.EnqueueRequestsFromMapFunc(gatusiov1alpha1.MapRessourceToInstance)).
+		Watches(&gatusiov1alpha1.Announcement{}, handler.EnqueueRequestsFromMapFunc(gatusiov1alpha1.MapRessourceToInstance)).
+		Watches(&gatusiov1alpha1.Suite{}, handler.EnqueueRequestsFromMapFunc(gatusiov1alpha1.MapRessourceToInstance)).
 		Named("instance").
 		Complete(r)
+}
+
+func (r *InstanceReconciler) registerIndices(mgr ctrl.Manager, obj gatusiov1alpha1.InstanceReferencer) error {
+	if err := mgr.GetFieldIndexer().IndexField(context.Background(), obj, gatusiov1alpha1.InstanceNameReferenceKey, func(rawObj client.Object) []string {
+		// grab the endpoint object, extract the instance...
+		endpoint := rawObj.(gatusiov1alpha1.InstanceReferencer)
+		return []string{endpoint.GetInstanceName()}
+	}); err != nil {
+		return err
+	}
+	if err := mgr.GetFieldIndexer().IndexField(context.Background(), obj, gatusiov1alpha1.InstanceNamespaceReferenceKey, func(rawObj client.Object) []string {
+		// grab the endpoint object, extract the instance...
+		endpoint := rawObj.(gatusiov1alpha1.InstanceReferencer)
+		if endpoint.GetInstanceNamespace() != nil {
+			return []string{*endpoint.GetInstanceNamespace()}
+		}
+		// fallback to own namespace
+		return []string{endpoint.GetNamespace()}
+	}); err != nil {
+		return err
+	}
+	return nil
 }
 
 func getInstanceLabels(instance *gatusiov1alpha1.Instance) map[string]string {
@@ -435,25 +471,67 @@ func (r *InstanceReconciler) generateConfigString(ctx context.Context, req ctrl.
 		log.Error(err, "unable to list endpoints")
 	}
 
+	var externalEndpoints gatusiov1alpha1.ExternalEndpointList
+	if err := r.List(ctx, &externalEndpoints,
+		client.MatchingFields{
+			gatusiov1alpha1.InstanceNameReferenceKey:      req.Name,
+			gatusiov1alpha1.InstanceNamespaceReferenceKey: req.Namespace,
+		},
+	); err != nil {
+		log.Error(err, "unable to list externalEndpoints")
+	}
+
+	var announcements gatusiov1alpha1.AnnouncementList
+	if err := r.List(ctx, &announcements,
+		client.MatchingFields{
+			gatusiov1alpha1.InstanceNameReferenceKey:      req.Name,
+			gatusiov1alpha1.InstanceNamespaceReferenceKey: req.Namespace,
+		},
+	); err != nil {
+		log.Error(err, "unable to list announcements")
+	}
+
+	var suites gatusiov1alpha1.SuiteList
+	if err := r.List(ctx, &suites,
+		client.MatchingFields{
+			gatusiov1alpha1.InstanceNameReferenceKey:      req.Name,
+			gatusiov1alpha1.InstanceNamespaceReferenceKey: req.Namespace,
+		},
+	); err != nil {
+		log.Error(err, "unable to list suits")
+	}
+
 	gatus_config := gatusconfig.Config{
-		Metrics:  instance.Spec.GatusConfig.Metrics,
-		Storage:  instance.Spec.GatusConfig.Storage.ToGatusConfig(),
-		Alerting: instance.Spec.GatusConfig.Alerting,
-		// Announcements: , // TODO: via CRD
-		// Endpoints: , // TODO: via CRD / ingress/route/gateway annotations
-		// ExternalEndpoints: , // TODO: via CRD
-		Security:    instance.Spec.GatusConfig.Security.ToGatusConfig(),
-		Concurrency: instance.Spec.GatusConfig.Concurrency,
-		Web:         instance.Spec.GatusConfig.Web.ToGatusConfig(),
-		Ui:          instance.Spec.GatusConfig.Ui.ToGatusConfig(),
-		Maintenance: instance.Spec.GatusConfig.Maintenance.ToGatusConfig(),
-		// Suites: , // TODO: via CRD
+		Metrics:      instance.Spec.GatusConfig.Metrics,
+		Storage:      instance.Spec.GatusConfig.Storage.ToGatusConfig(),
+		Alerting:     instance.Spec.GatusConfig.Alerting,
+		Security:     instance.Spec.GatusConfig.Security.ToGatusConfig(),
+		Concurrency:  instance.Spec.GatusConfig.Concurrency,
+		Web:          instance.Spec.GatusConfig.Web.ToGatusConfig(),
+		Ui:           instance.Spec.GatusConfig.Ui.ToGatusConfig(),
+		Maintenance:  instance.Spec.GatusConfig.Maintenance.ToGatusConfig(),
 		Connectivity: instance.Spec.GatusConfig.Connectivity.ToGatusConfig(),
 	}
 
+	// TODO: optionally via ingress/route/gateway annotations
 	gatus_config.Endpoints = make([]gatusconfig.GatusEndpointConfig, 0, len(endpoints.Items))
-	for _, endpoint := range endpoints.Items {
-		gatus_config.Endpoints = append(gatus_config.Endpoints, *endpoint.Spec.Config.ToGatusConfig())
+	for _, item := range endpoints.Items {
+		gatus_config.Endpoints = append(gatus_config.Endpoints, *item.Spec.Config.ToGatusConfig())
+	}
+
+	gatus_config.ExternalEndpoints = make([]gatusconfig.GatusExternalEndpointConfig, 0, len(externalEndpoints.Items))
+	for _, item := range externalEndpoints.Items {
+		gatus_config.ExternalEndpoints = append(gatus_config.ExternalEndpoints, *item.Spec.Config.ToGatusConfig())
+	}
+
+	gatus_config.Announcements = make([]gatusconfig.GatusAnnouncementConfig, 0, len(announcements.Items))
+	for _, item := range announcements.Items {
+		gatus_config.Announcements = append(gatus_config.Announcements, *item.Spec.Config.ToGatusConfig())
+	}
+
+	gatus_config.Suites = make([]gatusconfig.GatusSuiteConfig, 0, len(suites.Items))
+	for _, item := range suites.Items {
+		gatus_config.Suites = append(gatus_config.Suites, *item.Spec.Config.ToGatusConfig())
 	}
 
 	yaml, err := yaml.Marshal(gatus_config)
