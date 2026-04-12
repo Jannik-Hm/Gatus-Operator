@@ -236,7 +236,9 @@ spec:
                 type: string
               replicas:
                 default: 1
-                description: Number of Gatus Instance Replicas, defaults to 1
+                description: |-
+                  Number of Gatus Instance Replicas, defaults to 1
+                  Currently limiting to 1 replica max as gatus currently does not support HA
                 format: int32
                 maximum: 1
                 minimum: 0
