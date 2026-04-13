@@ -21,9 +21,11 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"maps"
+	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -34,9 +36,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 	"sigs.k8s.io/yaml"
 
 	gatusiov1alpha1 "github.com/Jannik-Hm/Gatus-Operator/api/v1alpha1"
@@ -269,16 +274,27 @@ func (r *InstanceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		return fmt.Errorf("Could not register Suite Indices: %s", err)
 	}
 
-	return ctrl.NewControllerManagedBy(mgr).
-		For(&gatusiov1alpha1.Instance{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
-		Owns(&appsv1.Deployment{}).
+	controller := ctrl.NewControllerManagedBy(mgr).
+		For(&gatusiov1alpha1.Instance{}, builder.WithPredicates(predicate.GenerationChangedPredicate{}))
+
+	// managed ressources
+	controller.Owns(&appsv1.Deployment{}).
 		Owns(&corev1.Service{}).
-		Owns(&corev1.ConfigMap{}).
+		Owns(&corev1.ConfigMap{})
+
+	// CRDs
+	controller.
 		Watches(&gatusiov1alpha1.Endpoint{}, handler.EnqueueRequestsFromMapFunc(gatusiov1alpha1.MapRessourceToInstance)).
 		Watches(&gatusiov1alpha1.ExternalEndpoint{}, handler.EnqueueRequestsFromMapFunc(gatusiov1alpha1.MapRessourceToInstance)).
 		Watches(&gatusiov1alpha1.Announcement{}, handler.EnqueueRequestsFromMapFunc(gatusiov1alpha1.MapRessourceToInstance)).
-		Watches(&gatusiov1alpha1.Suite{}, handler.EnqueueRequestsFromMapFunc(gatusiov1alpha1.MapRessourceToInstance)).
-		Named("instance").
+		Watches(&gatusiov1alpha1.Suite{}, handler.EnqueueRequestsFromMapFunc(gatusiov1alpha1.MapRessourceToInstance))
+
+	// annotations
+	controller.
+		Watches(&networkingv1.Ingress{}, handler.EnqueueRequestsFromMapFunc(mapLabelsToInstances), builder.WithPredicates(labelsPredicate())). // TODO: add flag for this watcher
+		Watches(&gatewayv1.HTTPRoute{}, handler.EnqueueRequestsFromMapFunc(mapLabelsToInstances), builder.WithPredicates(labelsPredicate()))   // TODO: add flag for this watcher
+
+	return controller.Named("instance").
 		Complete(r)
 }
 
@@ -501,6 +517,8 @@ func (r *InstanceReconciler) generateConfigString(ctx context.Context, req ctrl.
 		log.Error(err, "unable to list suits")
 	}
 
+	// TODO: add fetchers for ingress, ingressClass, httpRoute and gateway
+
 	gatus_config := gatusconfig.Config{
 		Metrics:      instance.Spec.GatusConfig.Metrics,
 		Storage:      instance.Spec.GatusConfig.Storage.ToGatusConfig(),
@@ -512,6 +530,8 @@ func (r *InstanceReconciler) generateConfigString(ctx context.Context, req ctrl.
 		Maintenance:  instance.Spec.GatusConfig.Maintenance.ToGatusConfig(),
 		Connectivity: instance.Spec.GatusConfig.Connectivity.ToGatusConfig(),
 	}
+
+	// TODO: sort lists
 
 	// TODO: optionally via ingress/route/gateway annotations
 	gatus_config.Endpoints = make([]gatusconfig.GatusEndpointConfig, 0, len(endpoints.Items))
@@ -571,4 +591,78 @@ func mutateConfig(instance *gatusiov1alpha1.Instance, obj *corev1.ConfigMap, sch
 	}
 
 	return nil
+}
+
+const (
+	disabledAnnotation       string = "gatus.io/disabled"
+	nameAnnotation           string = "gatus.io/name"
+	instancesAnnotation      string = "gatus.io/instances"
+	groupAnnotation          string = "gatus.io/group"
+	configOverrideAnnotation string = "gatus.io/config"
+)
+
+func labelsPredicate() predicate.Predicate {
+	return predicate.Funcs{
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldAnn := e.ObjectOld.GetAnnotations()
+			newAnn := e.ObjectNew.GetAnnotations()
+
+			// 1. Check if it was Gatus-enabled and now is not (Removal)
+			_, oldExists := oldAnn["gatus.io/instances"]
+			_, newExists := newAnn["gatus.io/instances"]
+
+			if oldExists != newExists {
+				return true
+			}
+
+			// 2. If it is still enabled, only reconcile if the Gatus-specific
+			// annotations actually changed to save CPU cycles.
+			if newExists {
+				return oldAnn["gatus.io/instances"] != newAnn["gatus.io/instances"] ||
+					oldAnn["gatus.io/config"] != newAnn["gatus.io/config"] ||
+					oldAnn["gatus.io/disabled"] != newAnn["gatus.io/disabled"]
+			}
+
+			return false
+		},
+		CreateFunc: func(e event.CreateEvent) bool {
+			_, ok := e.Object.GetAnnotations()["gatus.io/instances"]
+			return ok
+		},
+		DeleteFunc: func(e event.DeleteEvent) bool {
+			_, ok := e.Object.GetAnnotations()["gatus.io/instances"]
+			return ok
+		},
+	}
+}
+
+func mapLabelsToInstances(ctx context.Context, obj client.Object) []reconcile.Request {
+	annotations := obj.GetAnnotations()
+	instances, ok := annotations[instancesAnnotation]
+	if !ok || instances == "" {
+		return nil
+	}
+
+	var reconcile_requests []reconcile.Request = make([]reconcile.Request, 0)
+
+	var instance_name string
+	var instance_namespace string
+	for _, value := range strings.Split(instances, ",") {
+		instance_parts := strings.Split(value, "/")
+		if len(instance_parts) == 1 {
+			instance_namespace = obj.GetNamespace()
+			instance_name = instance_parts[0]
+		} else if len(instance_parts) == 2 {
+			instance_namespace = instance_parts[0]
+			instance_name = instance_parts[1]
+		}
+		reconcile_requests = append(reconcile_requests, reconcile.Request{
+			NamespacedName: client.ObjectKey{
+				Name:      instance_name,
+				Namespace: instance_namespace,
+			},
+		})
+	}
+
+	return reconcile_requests
 }
