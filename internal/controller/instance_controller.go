@@ -45,6 +45,7 @@ import (
 	"sigs.k8s.io/yaml"
 
 	gatusiov1alpha1 "github.com/Jannik-Hm/Gatus-Operator/api/v1alpha1"
+	annotatedressources "github.com/Jannik-Hm/Gatus-Operator/internal/annotated_ressources"
 	"github.com/Jannik-Hm/Gatus-Operator/internal/config"
 	gatusconfig "github.com/Jannik-Hm/Gatus-Operator/internal/gatus_config"
 )
@@ -79,6 +80,9 @@ type InstanceReconciler struct {
 // +kubebuilder:rbac:groups=gatus.io,resources=suites,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=gatus.io,resources=suites/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=gatus.io,resources=suites/finalizers,verbs=update
+
+// +kubebuilder:rbac:groups="gateway.networking.k8s.io",resources=httproutes,verbs=get;list;watch
+// +kubebuilder:rbac:groups="networking.k8s.io",resources=ingresses,verbs=get;list;watch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -258,20 +262,28 @@ func (r *InstanceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *InstanceReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	if err := r.registerIndices(mgr, &gatusiov1alpha1.Endpoint{}); err != nil {
+	if err := r.registerInstanceRefIndices(mgr, &gatusiov1alpha1.Endpoint{}); err != nil {
 		return fmt.Errorf("Could not register Endpoint Indices: %s", err)
 	}
 
-	if err := r.registerIndices(mgr, &gatusiov1alpha1.ExternalEndpoint{}); err != nil {
+	if err := r.registerInstanceRefIndices(mgr, &gatusiov1alpha1.ExternalEndpoint{}); err != nil {
 		return fmt.Errorf("Could not register ExternalEndpoint Indices: %s", err)
 	}
 
-	if err := r.registerIndices(mgr, &gatusiov1alpha1.Announcement{}); err != nil {
+	if err := r.registerInstanceRefIndices(mgr, &gatusiov1alpha1.Announcement{}); err != nil {
 		return fmt.Errorf("Could not register Announcement Indices: %s", err)
 	}
 
-	if err := r.registerIndices(mgr, &gatusiov1alpha1.Suite{}); err != nil {
+	if err := r.registerInstanceRefIndices(mgr, &gatusiov1alpha1.Suite{}); err != nil {
 		return fmt.Errorf("Could not register Suite Indices: %s", err)
+	}
+
+	if err := r.registerAnnotationIndices(mgr, &networkingv1.Ingress{}); err != nil {
+		return fmt.Errorf("Could not register Ingress Indices: %s", err)
+	}
+
+	if err := r.registerAnnotationIndices(mgr, &gatewayv1.HTTPRoute{}); err != nil {
+		return fmt.Errorf("Could not register HTTPRoute Indices: %s", err)
 	}
 
 	controller := ctrl.NewControllerManagedBy(mgr).
@@ -298,7 +310,7 @@ func (r *InstanceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func (r *InstanceReconciler) registerIndices(mgr ctrl.Manager, obj gatusiov1alpha1.InstanceReferencer) error {
+func (r *InstanceReconciler) registerInstanceRefIndices(mgr ctrl.Manager, obj gatusiov1alpha1.InstanceReferencer) error {
 	if err := mgr.GetFieldIndexer().IndexField(context.Background(), obj, gatusiov1alpha1.InstanceNameReferenceKey, func(rawObj client.Object) []string {
 		// grab the endpoint object, extract the instance...
 		endpoint := rawObj.(gatusiov1alpha1.InstanceReferencer)
@@ -519,6 +531,26 @@ func (r *InstanceReconciler) generateConfigString(ctx context.Context, req ctrl.
 
 	// TODO: add fetchers for ingress, ingressClass, httpRoute and gateway
 
+	var annotatedIngresses networkingv1.IngressList
+	if err := r.List(ctx, &annotatedIngresses,
+		client.MatchingFields{
+			instancesAnnotationWithPrefix: req.Namespace + "/" + req.Name,
+			disabledAnnotationWithPrefix:  "false",
+		},
+	); err != nil {
+		log.Error(err, "unable to list directly annotated Ingresses")
+	}
+
+	var annotatedHttpRoutes gatewayv1.HTTPRouteList
+	if err := r.List(ctx, &annotatedHttpRoutes,
+		client.MatchingFields{
+			instancesAnnotationWithPrefix: req.Namespace + "/" + req.Name,
+			disabledAnnotationWithPrefix:  "false",
+		},
+	); err != nil {
+		log.Error(err, "unable to list directly annotated HTTProutes")
+	}
+
 	gatus_config := gatusconfig.Config{
 		Metrics:      instance.Spec.GatusConfig.Metrics,
 		Storage:      instance.Spec.GatusConfig.Storage.ToGatusConfig(),
@@ -534,9 +566,35 @@ func (r *InstanceReconciler) generateConfigString(ctx context.Context, req ctrl.
 	// TODO: sort lists
 
 	// TODO: optionally via ingress/route/gateway annotations
-	gatus_config.Endpoints = make([]gatusconfig.GatusEndpointConfig, 0, len(endpoints.Items))
+	gatus_config.Endpoints = make([]gatusconfig.GatusEndpointConfig, 0, len(endpoints.Items)+len(annotatedIngresses.Items)+len(annotatedHttpRoutes.Items))
 	for _, item := range endpoints.Items {
 		gatus_config.Endpoints = append(gatus_config.Endpoints, *item.Spec.Config.ToGatusConfig())
+	}
+	for _, item := range annotatedIngresses.Items {
+		obj := annotatedressources.AnnotatedIngress(item)
+		cfgs, err := annotationsToGatusConfigs(&obj)
+		if err != nil {
+			log.Error(err, "Could not parse Ingress annotations")
+		}
+		if cfgs == nil {
+			continue
+		}
+		for _, cfg := range cfgs {
+			gatus_config.Endpoints = append(gatus_config.Endpoints, *cfg)
+		}
+	}
+	for _, item := range annotatedHttpRoutes.Items {
+		obj := annotatedressources.AnnotatedHTTPRoute(item)
+		cfgs, err := annotationsToGatusConfigs(&obj)
+		if err != nil {
+			log.Error(err, "Could not parse HTTPRoute annotations")
+		}
+		if cfgs == nil {
+			continue
+		}
+		for _, cfg := range cfgs {
+			gatus_config.Endpoints = append(gatus_config.Endpoints, *cfg)
+		}
 	}
 
 	gatus_config.ExternalEndpoints = make([]gatusconfig.GatusExternalEndpointConfig, 0, len(externalEndpoints.Items))
@@ -594,12 +652,48 @@ func mutateConfig(instance *gatusiov1alpha1.Instance, obj *corev1.ConfigMap, sch
 }
 
 const (
+	annotationPrefix string = ".metadata.annotations."
+
 	disabledAnnotation       string = "gatus.io/disabled"
 	nameAnnotation           string = "gatus.io/name"
 	instancesAnnotation      string = "gatus.io/instances"
 	groupAnnotation          string = "gatus.io/group"
 	configOverrideAnnotation string = "gatus.io/config"
+
+	disabledAnnotationWithPrefix       string = annotationPrefix + disabledAnnotation
+	nameAnnotationWithPrefix           string = annotationPrefix + nameAnnotation
+	instancesAnnotationWithPrefix      string = annotationPrefix + instancesAnnotation
+	groupAnnotationWithPrefix          string = annotationPrefix + groupAnnotation
+	configOverrideAnnotationWithPrefix string = annotationPrefix + configOverrideAnnotation
 )
+
+func (r *InstanceReconciler) registerAnnotationIndices(mgr ctrl.Manager, obj client.Object) error {
+	// TODO: confirm this works as intended
+	if err := mgr.GetFieldIndexer().IndexField(context.Background(), obj, instancesAnnotationWithPrefix, func(rawObj client.Object) []string {
+		// grab the object, extract the instances annotation...
+		instance_keys := parseInstancesAnnotation(rawObj)
+		indices := make([]string, 0, len(instance_keys))
+		for _, value := range instance_keys {
+			indices = append(indices, fmt.Sprintf("%s/%s", value.Namespace, value.Name))
+		}
+		return indices
+	}); err != nil {
+		return err
+	}
+	if err := mgr.GetFieldIndexer().IndexField(context.Background(), obj, disabledAnnotationWithPrefix, func(rawObj client.Object) []string {
+		annotations := rawObj.GetAnnotations()
+		disabled, ok := annotations[disabledAnnotation]
+
+		disabled = strings.ToLower(disabled)
+		if !ok || disabled != "true" {
+			return []string{"false"} // default to false
+		}
+		return []string{disabled}
+	}); err != nil {
+		return err
+	}
+	return nil
+}
 
 func labelsPredicate() predicate.Predicate {
 	return predicate.Funcs{
@@ -636,33 +730,101 @@ func labelsPredicate() predicate.Predicate {
 	}
 }
 
-func mapLabelsToInstances(ctx context.Context, obj client.Object) []reconcile.Request {
+func parseInstancesAnnotation(obj client.Object) []client.ObjectKey {
 	annotations := obj.GetAnnotations()
 	instances, ok := annotations[instancesAnnotation]
 	if !ok || instances == "" {
 		return nil
 	}
 
-	var reconcile_requests []reconcile.Request = make([]reconcile.Request, 0)
+	objectKeys := make([]client.ObjectKey, 0)
 
-	var instance_name string
-	var instance_namespace string
 	for _, value := range strings.Split(instances, ",") {
-		instance_parts := strings.Split(value, "/")
-		if len(instance_parts) == 1 {
-			instance_namespace = obj.GetNamespace()
-			instance_name = instance_parts[0]
-		} else if len(instance_parts) == 2 {
-			instance_namespace = instance_parts[0]
-			instance_name = instance_parts[1]
+		value = strings.TrimSpace(value)
+
+		if value == "" {
+			continue
 		}
+
+		parts := strings.Split(value, "/")
+		key := client.ObjectKey{}
+
+		switch len(parts) {
+		case 1:
+			key.Namespace = obj.GetNamespace()
+			key.Name = parts[0]
+		case 2:
+			key.Namespace = parts[0]
+			key.Name = parts[1]
+		default:
+			// skip invalid format, maybe log this in the future?
+			continue
+		}
+		objectKeys = append(objectKeys, key)
+	}
+
+	return objectKeys
+}
+
+func mapLabelsToInstances(ctx context.Context, obj client.Object) []reconcile.Request {
+	if obj == nil {
+		return nil
+	}
+
+	instance_keys := parseInstancesAnnotation(obj)
+	if len(instance_keys) == 0 {
+		return nil
+	}
+
+	var reconcile_requests []reconcile.Request = make([]reconcile.Request, 0, len(instance_keys))
+
+	for _, instance_key := range instance_keys {
 		reconcile_requests = append(reconcile_requests, reconcile.Request{
-			NamespacedName: client.ObjectKey{
-				Name:      instance_name,
-				Namespace: instance_namespace,
-			},
+			NamespacedName: instance_key,
 		})
 	}
 
 	return reconcile_requests
+}
+
+func annotationsToGatusConfigs(obj annotatedressources.AnnotatedRessource) ([]*gatusconfig.GatusEndpointConfig, error) {
+	annotations := obj.GetAnnotations()
+	var base_cfg gatusconfig.GatusEndpointConfig
+	if additionalConfigString, ok := annotations[configOverrideAnnotation]; ok {
+		err := yaml.Unmarshal([]byte(additionalConfigString), &base_cfg)
+		if err != nil {
+			return nil, fmt.Errorf("Could not parse override config annotation: %s", err)
+		}
+	} else {
+		base_cfg = gatusconfig.GatusEndpointConfig{}
+	}
+
+	urls := obj.GetURLs()
+	configs := make([]*gatusconfig.GatusEndpointConfig, 0, len(urls))
+
+	for _, url := range urls {
+		cfg := base_cfg
+
+		cfg.URL = url
+
+		if len(cfg.Conditions) == 0 {
+			cfg.Conditions = obj.GetConditions()
+		}
+
+		if name, ok := annotations[nameAnnotation]; ok && name != "" {
+			cfg.Name = name
+		} else {
+			cfg.Name = obj.GetName()
+		}
+		// TODO: append unique string to name if len(urls) > 1
+
+		if group, ok := annotations[groupAnnotation]; ok {
+			cfg.Group = &group
+		} else {
+			cfg.Group = ptr.To(obj.GetNamespace())
+		}
+		configs = append(configs, &cfg)
+	}
+
+	return configs, nil
 }
