@@ -703,20 +703,12 @@ func labelsPredicate() predicate.Predicate {
 			oldAnn := e.ObjectOld.GetAnnotations()
 			newAnn := e.ObjectNew.GetAnnotations()
 
-			// 1. Check if it was Gatus-enabled and now is not (Removal)
+			// Check if it was Gatus-enabled or is now
 			_, oldExists := oldAnn["gatus.io/instances"]
 			_, newExists := newAnn["gatus.io/instances"]
 
-			if oldExists != newExists {
+			if oldExists || newExists {
 				return true
-			}
-
-			// 2. If it is still enabled, only reconcile if the Gatus-specific
-			// annotations actually changed to save CPU cycles.
-			if newExists {
-				return oldAnn["gatus.io/instances"] != newAnn["gatus.io/instances"] ||
-					oldAnn["gatus.io/config"] != newAnn["gatus.io/config"] ||
-					oldAnn["gatus.io/disabled"] != newAnn["gatus.io/disabled"]
 			}
 
 			return false
