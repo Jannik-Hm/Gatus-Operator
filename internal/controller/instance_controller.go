@@ -81,7 +81,7 @@ type InstanceReconciler struct {
 // +kubebuilder:rbac:groups=gatus.io,resources=suites/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=gatus.io,resources=suites/finalizers,verbs=update
 
-// +kubebuilder:rbac:groups="gateway.networking.k8s.io",resources=httproutes,verbs=get;list;watch
+// +kubebuilder:rbac:groups="gateway.networking.k8s.io",resources=httproutes;gateways,verbs=get;list;watch
 // +kubebuilder:rbac:groups="networking.k8s.io",resources=ingresses,verbs=get;list;watch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
@@ -286,6 +286,24 @@ func (r *InstanceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		return fmt.Errorf("Could not register HTTPRoute Indices: %s", err)
 	}
 
+	// register gateway parent ref
+	if err := mgr.GetCache().IndexField(context.Background(), &gatewayv1.HTTPRoute{}, gatewayParentRefSpec, func(rawObj client.Object) []string {
+		route := rawObj.(*gatewayv1.HTTPRoute)
+		var gatewayNames []string
+		for _, ref := range route.Spec.ParentRefs {
+			if ref.Kind != nil && *ref.Kind == "Gateway" {
+				namespace := route.GetNamespace()
+				if ref.Namespace != nil {
+					namespace = string(*ref.Namespace)
+				}
+				gatewayNames = append(gatewayNames, fmt.Sprintf("%s/%s", namespace, ref.Name))
+			}
+		}
+		return gatewayNames
+	}); err != nil {
+		return fmt.Errorf("Could not register Gateway Indices: %s", err)
+	}
+
 	controller := ctrl.NewControllerManagedBy(mgr).
 		For(&gatusiov1alpha1.Instance{}, builder.WithPredicates(predicate.GenerationChangedPredicate{}))
 
@@ -303,8 +321,9 @@ func (r *InstanceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 	// annotations
 	controller.
-		Watches(&networkingv1.Ingress{}, handler.EnqueueRequestsFromMapFunc(mapLabelsToInstances), builder.WithPredicates(labelsPredicate())). // TODO: add flag for this watcher
-		Watches(&gatewayv1.HTTPRoute{}, handler.EnqueueRequestsFromMapFunc(mapLabelsToInstances), builder.WithPredicates(labelsPredicate()))   // TODO: add flag for this watcher
+		Watches(&networkingv1.Ingress{}, handler.EnqueueRequestsFromMapFunc(mapLabelsToInstances), builder.WithPredicates(labelsPredicate())).                     // TODO: add flag for this watcher
+		Watches(&gatewayv1.HTTPRoute{}, handler.EnqueueRequestsFromMapFunc(mapLabelsToInstances), builder.WithPredicates(labelsPredicate())).                      // TODO: add flag for this watcher
+		Watches(&gatewayv1.Gateway{}, handler.EnqueueRequestsFromMapFunc(r.mapGatewayToInstances), builder.WithPredicates(predicate.GenerationChangedPredicate{})) // TODO: add flag for this watcher
 
 	return controller.Named("instance").
 		Complete(r)
@@ -668,6 +687,8 @@ const (
 	instancesAnnotationWithPrefix      string = annotationPrefix + instancesAnnotation
 	groupAnnotationWithPrefix          string = annotationPrefix + groupAnnotation
 	configOverrideAnnotationWithPrefix string = annotationPrefix + configOverrideAnnotation
+
+	gatewayParentRefSpec string = "gatewayParentRef"
 )
 
 func (r *InstanceReconciler) registerAnnotationIndices(mgr ctrl.Manager, obj client.Object) error {
@@ -697,6 +718,7 @@ func (r *InstanceReconciler) registerAnnotationIndices(mgr ctrl.Manager, obj cli
 	return nil
 }
 
+// TODO: ignore status changes
 func labelsPredicate() predicate.Predicate {
 	return predicate.Funcs{
 		UpdateFunc: func(e event.UpdateEvent) bool {
@@ -727,7 +749,8 @@ func labelsPredicate() predicate.Predicate {
 func parseInstancesAnnotation(obj client.Object) []client.ObjectKey {
 	annotations := obj.GetAnnotations()
 	instances, ok := annotations[instancesAnnotation]
-	if !ok || instances == "" {
+	disabled := annotations[disabledAnnotation]
+	if !ok || instances == "" || disabled == "true" {
 		return nil
 	}
 
@@ -825,4 +848,39 @@ func annotationsToGatusConfigs(obj annotatedressources.AnnotatedRessource) ([]*g
 	}
 
 	return configs, nil
+}
+
+func (r *InstanceReconciler) mapGatewayToInstances(ctx context.Context, obj client.Object) []reconcile.Request {
+	gateway := obj.(*gatewayv1.Gateway)
+
+	instanceSet := make(map[client.ObjectKey]struct{})
+
+	// parse gateway annotations
+	instances := parseInstancesAnnotation(gateway)
+	for _, instance := range instances {
+		instanceSet[instance] = struct{}{}
+	}
+
+	// find all routes referencing this Gateway
+	routeList := &gatewayv1.HTTPRouteList{}
+	err := r.List(ctx, routeList, client.MatchingFields{gatewayParentRefSpec: fmt.Sprintf("%s/%s", gateway.Namespace, gateway.Name), disabledAnnotationWithPrefix: "false"}) //TODO: annotation key const + index
+	if err != nil {
+		return nil
+	}
+
+	// parse annotations for each route
+	for _, route := range routeList.Items {
+		instances := parseInstancesAnnotation(&route)
+
+		for _, instance := range instances {
+			instanceSet[instance] = struct{}{}
+		}
+	}
+
+	requests := make([]reconcile.Request, 0, len(instanceSet))
+	for instance := range instanceSet {
+		requests = append(requests, reconcile.Request{NamespacedName: instance})
+	}
+
+	return requests
 }
