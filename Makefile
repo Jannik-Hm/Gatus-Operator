@@ -305,3 +305,11 @@ kind-run:
 .PHONY: kind-podman-run
 kind-podman-run:
 	@bash -c 'make kind-run CONTAINER_TOOL=podman'
+
+.PHONY: redeploy
+redeploy:
+	bash -c 'make undeploy; make generate; make manifests; make docker-build; make install; make copy-image; make deploy'
+
+.PHONY: redeploy-podman
+redeploy-podman:
+	bash -c 'make redeploy CONTAINER_TOOL=podman'
