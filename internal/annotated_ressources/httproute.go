@@ -1,27 +1,63 @@
 package annotatedressources
 
 import (
+	"context"
+	"fmt"
+	"slices"
+
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
-type AnnotatedHTTPRoute gatewayv1.HTTPRoute
-
-func (obj *AnnotatedHTTPRoute) GetURLs() []string {
-	urls := make([]string, 0)
-
-	// TODO: make this work
-	// paths := obj.getPaths()
-
-	// for _, hostname := range obj.getHostnames() {
-	// }
-
-	// TODO: to check wether endpoint is HTTP or HTTPS, Gateway Spec needs to be checked
-
-	return urls
+type AnnotatedHTTPRoute struct {
+	*gatewayv1.HTTPRoute
+	gateways GatewayMap
 }
 
-func (obj *AnnotatedHTTPRoute) GetConditions() []string {
-	return []string{"[STATUS] == 200"}
+func NewAnnotatedHTTPRoute(ctx context.Context, client client.Reader, route *gatewayv1.HTTPRoute) (*AnnotatedHTTPRoute, error) {
+	annotated_route := &AnnotatedHTTPRoute{}
+	annotated_route.HTTPRoute = route
+
+	err := annotated_route.getRouteGateways(ctx, client)
+	if err != nil {
+		return nil, err
+	}
+	return annotated_route, nil
+}
+
+// key consists of namespace/name
+type GatewayMap map[string]*gatewayv1.Gateway
+
+func (obj *AnnotatedHTTPRoute) GetURLs() ([]string, error) {
+	urls := make([]string, 0)
+
+	paths := obj.getPaths()
+
+	for host, protocols := range obj.getUrlsAndProtocols() {
+		for protocol_type, _ := range protocols {
+			protocol, err := getGatewayProtocolType(protocol_type)
+			if err != nil {
+				return nil, fmt.Errorf("Error generating URLs: %s", err)
+			}
+			for host_path, _ := range paths {
+				urls = append(urls, fmt.Sprintf("%s://%s%s", protocol, host, host_path))
+			}
+		}
+	}
+
+	return urls, nil
+}
+
+func (obj *AnnotatedHTTPRoute) GetConditions(protocol string) []string {
+	switch protocol {
+	case "http", "https":
+		return []string{"[STATUS] == 200"}
+	case "tcp", "udp":
+		return []string{"[CONNECTED] == true"}
+	default:
+		return []string{fmt.Sprintf("unknown type %s", protocol)}
+	}
 }
 
 func (obj *AnnotatedHTTPRoute) getHostnames() []string {
@@ -44,4 +80,95 @@ func (obj *AnnotatedHTTPRoute) getPaths() map[string]struct{} {
 		}
 	}
 	return paths
+}
+
+type protocolSet map[gatewayv1.ProtocolType]struct{}
+type domain string
+
+func (obj *AnnotatedHTTPRoute) getUrlsAndProtocols() map[domain]protocolSet {
+	protocols := map[domain]protocolSet{}
+
+	urls := obj.getHostnames()
+
+	for _, parent_ref := range obj.Spec.ParentRefs {
+		if parent_ref.Kind != nil && *parent_ref.Kind != "Gateway" {
+			continue
+		}
+
+		listener_name := parent_ref.SectionName
+
+		var gateway_namespace string = obj.GetNamespace()
+		if parent_ref.Namespace != nil {
+			gateway_namespace = string(*parent_ref.Namespace)
+		}
+
+		gateway_key := fmt.Sprintf("%s/%s", gateway_namespace, parent_ref.Name)
+		gateway := obj.gateways[gateway_key]
+
+		for _, listener := range gateway.Spec.Listeners {
+			listener_urls := urls
+
+			if listener.Hostname != nil && (len(urls) == 0 || slices.Contains(listener_urls, string(*listener.Hostname))) {
+				listener_urls = []string{string(*listener.Hostname)}
+			}
+
+			if listener_name == nil || listener.Name == *listener_name {
+				for _, url := range listener_urls {
+					if _, ok := protocols[domain(url)]; !ok {
+						protocols[domain(url)] = protocolSet{}
+					}
+					protocols[domain(url)][listener.Protocol] = struct{}{}
+				}
+			}
+		}
+	}
+
+	return protocols
+}
+
+func (obj *AnnotatedHTTPRoute) getRouteGateways(ctx context.Context, client client.Reader) error {
+	gateways := GatewayMap{}
+	for _, parent_ref := range obj.Spec.ParentRefs {
+		if parent_ref.Kind != nil && *parent_ref.Kind != "Gateway" {
+			continue
+		}
+
+		var gateway_namespace string = obj.GetNamespace()
+		if parent_ref.Namespace != nil {
+			gateway_namespace = string(*parent_ref.Namespace)
+		}
+
+		gateway_key := fmt.Sprintf("%s/%s", gateway_namespace, parent_ref.Name)
+
+		gateway_ressource_key := types.NamespacedName{
+			Name:      string(parent_ref.Name),
+			Namespace: gateway_namespace,
+		}
+
+		gateways[gateway_key] = &gatewayv1.Gateway{}
+
+		if err := client.Get(ctx, gateway_ressource_key, gateways[gateway_key]); err != nil {
+			return fmt.Errorf("Could not get Gateway: %s", err)
+		}
+	}
+
+	obj.gateways = gateways
+	return nil
+}
+
+func getGatewayProtocolType(protocol gatewayv1.ProtocolType) (string, error) {
+	switch protocol {
+	case gatewayv1.HTTPProtocolType:
+		return "http", nil
+	case gatewayv1.HTTPSProtocolType:
+		return "https", nil
+	case gatewayv1.TCPProtocolType:
+		return "tcp", nil
+	case gatewayv1.TLSProtocolType:
+		return "https", nil
+	case gatewayv1.UDPProtocolType:
+		return "udp", nil
+	default:
+		return "", fmt.Errorf("Unknown Protocol type: %s", protocol)
+	}
 }

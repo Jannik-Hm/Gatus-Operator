@@ -6,6 +6,7 @@ import (
 
 type AnnotatedRessource interface {
 	metav1.Object
-	GetURLs() []string
-	GetConditions() []string
+	// TODO: add unique key that gets appended to endpoint name if more than one entry
+	GetURLs() ([]string, error)
+	GetConditions(protocol string) []string
 }

@@ -8,7 +8,7 @@ import (
 
 type AnnotatedIngress networkingv1.Ingress
 
-func (obj *AnnotatedIngress) GetURLs() []string {
+func (obj *AnnotatedIngress) GetURLs() ([]string, error) {
 	urls := make([]string, 0)
 
 	tls_enabled_hosts := obj.getTLSHosts()
@@ -22,10 +22,10 @@ func (obj *AnnotatedIngress) GetURLs() []string {
 		}
 	}
 
-	return urls
+	return urls, nil
 }
 
-func (obj *AnnotatedIngress) GetConditions() []string {
+func (obj *AnnotatedIngress) GetConditions(protocol string) []string {
 	return []string{"[STATUS] == 200"}
 }
 

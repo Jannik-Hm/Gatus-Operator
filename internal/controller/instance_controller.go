@@ -529,7 +529,7 @@ func (r *InstanceReconciler) generateConfigString(ctx context.Context, req ctrl.
 		log.Error(err, "unable to list suits")
 	}
 
-	// TODO: add fetchers for ingress, ingressClass, httpRoute and gateway
+	// TODO: add fetchers for ingressClass and gateway
 
 	var annotatedIngresses networkingv1.IngressList
 	if err := r.List(ctx, &annotatedIngresses,
@@ -584,8 +584,11 @@ func (r *InstanceReconciler) generateConfigString(ctx context.Context, req ctrl.
 		}
 	}
 	for _, item := range annotatedHttpRoutes.Items {
-		obj := annotatedressources.AnnotatedHTTPRoute(item)
-		cfgs, err := annotationsToGatusConfigs(&obj)
+		obj, err := annotatedressources.NewAnnotatedHTTPRoute(ctx, r, &item)
+		if err != nil {
+			log.Error(err, "Could not get parent Gateway spec")
+		}
+		cfgs, err := annotationsToGatusConfigs(obj)
 		if err != nil {
 			log.Error(err, "Could not parse HTTPRoute annotations")
 		}
@@ -668,7 +671,6 @@ const (
 )
 
 func (r *InstanceReconciler) registerAnnotationIndices(mgr ctrl.Manager, obj client.Object) error {
-	// TODO: confirm this works as intended
 	if err := mgr.GetFieldIndexer().IndexField(context.Background(), obj, instancesAnnotationWithPrefix, func(rawObj client.Object) []string {
 		// grab the object, extract the instances annotation...
 		instance_keys := parseInstancesAnnotation(rawObj)
@@ -799,7 +801,10 @@ func annotationsToGatusConfigs(obj annotatedressources.AnnotatedRessource) ([]*g
 		base_cfg = gatusconfig.GatusEndpointConfig{}
 	}
 
-	urls := obj.GetURLs()
+	urls, err := obj.GetURLs()
+	if err != nil {
+		return nil, fmt.Errorf("Could not generate URLs: %s", err)
+	}
 	configs := make([]*gatusconfig.GatusEndpointConfig, 0, len(urls))
 
 	for _, url := range urls {
@@ -808,7 +813,8 @@ func annotationsToGatusConfigs(obj annotatedressources.AnnotatedRessource) ([]*g
 		cfg.URL = url
 
 		if len(cfg.Conditions) == 0 {
-			cfg.Conditions = obj.GetConditions()
+			protocol, _, _ := strings.Cut(url, "://")
+			cfg.Conditions = obj.GetConditions(protocol)
 		}
 
 		if name, ok := annotations[nameAnnotation]; ok && name != "" {
