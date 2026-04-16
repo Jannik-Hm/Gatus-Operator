@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 
+	gatusconfig "github.com/Jannik-Hm/Gatus-Operator/internal/gatus_config"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
@@ -16,10 +17,12 @@ type AnnotatedHTTPRoute struct {
 }
 
 func NewAnnotatedHTTPRoute(ctx context.Context, client client.Reader, route *gatewayv1.HTTPRoute) (*AnnotatedHTTPRoute, error) {
-	annotated_route := &AnnotatedHTTPRoute{}
-	annotated_route.HTTPRoute = route
+	annotated_route := &AnnotatedHTTPRoute{
+		HTTPRoute: route,
+		gateways:  GatewayMap{},
+	}
 
-	err := annotated_route.getRouteGateways(ctx, client)
+	err := annotated_route.GetMissingRouteGateways(ctx, client)
 	if err != nil {
 		return nil, err
 	}
@@ -91,19 +94,10 @@ func (obj *AnnotatedHTTPRoute) getUrlsAndProtocols() map[domain]protocolSet {
 	urls := obj.getHostnames()
 
 	for _, parent_ref := range obj.Spec.ParentRefs {
-		if parent_ref.Kind != nil && *parent_ref.Kind != "Gateway" {
+		gateway, listener_name := obj.getGateway(parent_ref)
+		if gateway == nil {
 			continue
 		}
-
-		listener_name := parent_ref.SectionName
-
-		var gateway_namespace string = obj.GetNamespace()
-		if parent_ref.Namespace != nil {
-			gateway_namespace = string(*parent_ref.Namespace)
-		}
-
-		gateway_key := fmt.Sprintf("%s/%s", gateway_namespace, parent_ref.Name)
-		gateway := obj.gateways[gateway_key]
 
 		for _, listener := range gateway.Spec.Listeners {
 			listener_urls := urls
@@ -126,8 +120,35 @@ func (obj *AnnotatedHTTPRoute) getUrlsAndProtocols() map[domain]protocolSet {
 	return protocols
 }
 
-func (obj *AnnotatedHTTPRoute) getRouteGateways(ctx context.Context, client client.Reader) error {
-	gateways := GatewayMap{}
+func (obj *AnnotatedHTTPRoute) addGateway(gateway *gatewayv1.Gateway) {
+	if gateway == nil {
+		return
+	}
+
+	gateway_key := fmt.Sprintf("%s/%s", gateway.GetNamespace(), gateway.GetName())
+
+	if _, ok := obj.gateways[gateway_key]; !ok {
+		obj.gateways[gateway_key] = gateway
+	}
+}
+
+func (obj *AnnotatedHTTPRoute) getGateway(parent_ref gatewayv1.ParentReference) (*gatewayv1.Gateway, *gatewayv1.SectionName) {
+	if parent_ref.Kind != nil && *parent_ref.Kind != "Gateway" {
+		return nil, nil
+	}
+
+	listener_name := parent_ref.SectionName
+
+	var gateway_namespace string = obj.GetNamespace()
+	if parent_ref.Namespace != nil {
+		gateway_namespace = string(*parent_ref.Namespace)
+	}
+
+	gateway_key := fmt.Sprintf("%s/%s", gateway_namespace, parent_ref.Name)
+	return obj.gateways[gateway_key], listener_name
+}
+
+func (obj *AnnotatedHTTPRoute) GetMissingRouteGateways(ctx context.Context, client client.Reader) error {
 	for _, parent_ref := range obj.Spec.ParentRefs {
 		if parent_ref.Kind != nil && *parent_ref.Kind != "Gateway" {
 			continue
@@ -138,21 +159,20 @@ func (obj *AnnotatedHTTPRoute) getRouteGateways(ctx context.Context, client clie
 			gateway_namespace = string(*parent_ref.Namespace)
 		}
 
-		gateway_key := fmt.Sprintf("%s/%s", gateway_namespace, parent_ref.Name)
-
 		gateway_ressource_key := types.NamespacedName{
 			Name:      string(parent_ref.Name),
 			Namespace: gateway_namespace,
 		}
 
-		gateways[gateway_key] = &gatewayv1.Gateway{}
+		gateway := &gatewayv1.Gateway{}
 
-		if err := client.Get(ctx, gateway_ressource_key, gateways[gateway_key]); err != nil {
+		if err := client.Get(ctx, gateway_ressource_key, gateway); err != nil {
 			return fmt.Errorf("Could not get Gateway: %s", err)
 		}
+
+		obj.addGateway(gateway)
 	}
 
-	obj.gateways = gateways
 	return nil
 }
 
@@ -171,4 +191,63 @@ func getGatewayProtocolType(protocol gatewayv1.ProtocolType) (string, error) {
 	default:
 		return "", fmt.Errorf("Unknown Protocol type: %s", protocol)
 	}
+}
+
+type HttpRouteMap map[string]*AnnotatedHTTPRoute
+
+// adds route to HttpRouteMap
+// if route exists, it adds the gateway to the annotated routes gateways
+func (route_map HttpRouteMap) AddUnique(route *gatewayv1.HTTPRoute, gateways []*gatewayv1.Gateway) {
+	if _, ok := route_map[route.Namespace+"/"+route.Name]; !ok {
+		route_map[route.Namespace+"/"+route.Name] = &AnnotatedHTTPRoute{
+			HTTPRoute: route,
+			gateways:  GatewayMap{},
+		}
+	}
+
+	if len(gateways) > 0 {
+		for _, gateway := range gateways {
+			route_map[route.Namespace+"/"+route.Name].addGateway(gateway)
+		}
+	}
+}
+
+func (obj *AnnotatedHTTPRoute) GetEndpointConfigs() ([]*gatusconfig.GatusEndpointConfig, error) {
+	urls := obj.getHostnames()
+
+	url_config_map := map[string][]*gatusconfig.GatusEndpointConfig{}
+
+	for _, parent_ref := range obj.Spec.ParentRefs {
+		gateway, listener_name := obj.getGateway(parent_ref)
+		if gateway == nil {
+			continue
+		}
+		for _, listener := range gateway.Spec.Listeners {
+			listener_urls := urls
+
+			if listener.Hostname != nil && (len(urls) == 0 || slices.Contains(listener_urls, string(*listener.Hostname))) {
+				listener_urls = []string{string(*listener.Hostname)}
+			}
+
+			if listener_name == nil || listener.Name == *listener_name {
+				for _, url := range listener_urls {
+					// TODO: this url is not assembled fully yet (missing protocol and paths)
+					if _, ok := url_config_map[url]; !ok {
+						url_config_map[url] = make([]*gatusconfig.GatusEndpointConfig, 0)
+					}
+					parsed_config, err := parseGatusAnnotations(gateway)
+					if err != nil {
+						return nil, fmt.Errorf("Unable to parse Gatus annotations: %s", err)
+					}
+					url_config_map[url] = append(url_config_map[url], parsed_config)
+				}
+			}
+		}
+	}
+	configs := make([]*gatusconfig.GatusEndpointConfig, 0)
+	for url, cfg := range url_config_map {
+		// TODO: merge cfgs and append to `configs`
+		_, _ = url, cfg
+	}
+	return configs, nil
 }

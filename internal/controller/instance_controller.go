@@ -36,7 +36,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
@@ -321,9 +320,10 @@ func (r *InstanceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 	// annotations
 	controller.
-		Watches(&networkingv1.Ingress{}, handler.EnqueueRequestsFromMapFunc(mapLabelsToInstances), builder.WithPredicates(labelsPredicate())).                     // TODO: add flag for this watcher
-		Watches(&gatewayv1.HTTPRoute{}, handler.EnqueueRequestsFromMapFunc(mapLabelsToInstances), builder.WithPredicates(labelsPredicate())).                      // TODO: add flag for this watcher
-		Watches(&gatewayv1.Gateway{}, handler.EnqueueRequestsFromMapFunc(r.mapGatewayToInstances), builder.WithPredicates(predicate.GenerationChangedPredicate{})) // TODO: add flag for this watcher
+		Watches(&networkingv1.Ingress{}, handler.EnqueueRequestsFromMapFunc(mapLabelsToInstances), builder.WithPredicates(predicate.GenerationChangedPredicate{})). // TODO: add flag for this watcher
+		Watches(&gatewayv1.HTTPRoute{}, handler.EnqueueRequestsFromMapFunc(mapLabelsToInstances), builder.WithPredicates(predicate.GenerationChangedPredicate{})).  // TODO: add flag for this watcher
+		Watches(&gatewayv1.Gateway{}, handler.EnqueueRequestsFromMapFunc(r.mapGatewayToInstances), builder.WithPredicates(predicate.GenerationChangedPredicate{}))  // TODO: add flag for this watcher
+		// TODO: IngressClass?
 
 	return controller.Named("instance").
 		Complete(r)
@@ -548,10 +548,10 @@ func (r *InstanceReconciler) generateConfigString(ctx context.Context, req ctrl.
 		log.Error(err, "unable to list suits")
 	}
 
-	// TODO: add fetchers for ingressClass and gateway
+	// TODO: add fetchers for ingressClass
 
-	var annotatedIngresses networkingv1.IngressList
-	if err := r.List(ctx, &annotatedIngresses,
+	var annotated_ingresses networkingv1.IngressList
+	if err := r.List(ctx, &annotated_ingresses,
 		client.MatchingFields{
 			instancesAnnotationWithPrefix: req.Namespace + "/" + req.Name,
 			disabledAnnotationWithPrefix:  "false",
@@ -560,14 +560,46 @@ func (r *InstanceReconciler) generateConfigString(ctx context.Context, req ctrl.
 		log.Error(err, "unable to list directly annotated Ingresses")
 	}
 
-	var annotatedHttpRoutes gatewayv1.HTTPRouteList
-	if err := r.List(ctx, &annotatedHttpRoutes,
+	http_routes := annotatedressources.HttpRouteMap{}
+
+	var annotated_http_routes gatewayv1.HTTPRouteList
+	if err := r.List(ctx, &annotated_http_routes,
 		client.MatchingFields{
 			instancesAnnotationWithPrefix: req.Namespace + "/" + req.Name,
 			disabledAnnotationWithPrefix:  "false",
 		},
 	); err != nil {
 		log.Error(err, "unable to list directly annotated HTTProutes")
+	}
+
+	for _, route := range annotated_http_routes.Items {
+		http_routes.AddUnique(&route, nil)
+	}
+
+	var annotated_gateways gatewayv1.GatewayList
+	if err := r.List(ctx, &annotated_gateways,
+		client.MatchingFields{
+			instancesAnnotationWithPrefix: req.Namespace + "/" + req.Name,
+			disabledAnnotationWithPrefix:  "false",
+		},
+	); err != nil {
+		log.Error(err, "unable to list directly annotated Gateways")
+	}
+
+	// get routes attached to annotated gateways
+	for _, gateway := range annotated_gateways.Items {
+		var attached_routes gatewayv1.HTTPRouteList
+		if err := r.List(ctx, &attached_routes,
+			client.MatchingFields{
+				gatewayParentRefSpec:         fmt.Sprintf("%s/%s", gateway.Namespace, gateway.Name),
+				disabledAnnotationWithPrefix: "false",
+			},
+		); err != nil {
+			log.Error(err, "unable to list indirectly annotated HTTProutes")
+		}
+		for _, route := range attached_routes.Items {
+			http_routes.AddUnique(&route, []*gatewayv1.Gateway{&gateway})
+		}
 	}
 
 	gatus_config := gatusconfig.Config{
@@ -584,12 +616,11 @@ func (r *InstanceReconciler) generateConfigString(ctx context.Context, req ctrl.
 
 	// TODO: sort lists
 
-	// TODO: optionally via ingress/route/gateway annotations
-	gatus_config.Endpoints = make([]gatusconfig.GatusEndpointConfig, 0, len(endpoints.Items)+len(annotatedIngresses.Items)+len(annotatedHttpRoutes.Items))
+	gatus_config.Endpoints = make([]gatusconfig.GatusEndpointConfig, 0, len(endpoints.Items)+len(annotated_ingresses.Items)+len(http_routes))
 	for _, item := range endpoints.Items {
 		gatus_config.Endpoints = append(gatus_config.Endpoints, *item.Spec.Config.ToGatusConfig())
 	}
-	for _, item := range annotatedIngresses.Items {
+	for _, item := range annotated_ingresses.Items {
 		obj := annotatedressources.AnnotatedIngress(item)
 		cfgs, err := annotationsToGatusConfigs(&obj)
 		if err != nil {
@@ -602,12 +633,12 @@ func (r *InstanceReconciler) generateConfigString(ctx context.Context, req ctrl.
 			gatus_config.Endpoints = append(gatus_config.Endpoints, *cfg)
 		}
 	}
-	for _, item := range annotatedHttpRoutes.Items {
-		obj, err := annotatedressources.NewAnnotatedHTTPRoute(ctx, r, &item)
+	for _, route := range http_routes {
+		err := route.GetMissingRouteGateways(ctx, r)
 		if err != nil {
 			log.Error(err, "Could not get parent Gateway spec")
 		}
-		cfgs, err := annotationsToGatusConfigs(obj)
+		cfgs, err := annotationsToGatusConfigs(route)
 		if err != nil {
 			log.Error(err, "Could not parse HTTPRoute annotations")
 		}
@@ -716,34 +747,6 @@ func (r *InstanceReconciler) registerAnnotationIndices(mgr ctrl.Manager, obj cli
 		return err
 	}
 	return nil
-}
-
-// TODO: ignore status changes
-func labelsPredicate() predicate.Predicate {
-	return predicate.Funcs{
-		UpdateFunc: func(e event.UpdateEvent) bool {
-			oldAnn := e.ObjectOld.GetAnnotations()
-			newAnn := e.ObjectNew.GetAnnotations()
-
-			// Check if it was Gatus-enabled or is now
-			_, oldExists := oldAnn["gatus.io/instances"]
-			_, newExists := newAnn["gatus.io/instances"]
-
-			if oldExists || newExists {
-				return true
-			}
-
-			return false
-		},
-		CreateFunc: func(e event.CreateEvent) bool {
-			_, ok := e.Object.GetAnnotations()["gatus.io/instances"]
-			return ok
-		},
-		DeleteFunc: func(e event.DeleteEvent) bool {
-			_, ok := e.Object.GetAnnotations()["gatus.io/instances"]
-			return ok
-		},
-	}
 }
 
 func parseInstancesAnnotation(obj client.Object) []client.ObjectKey {

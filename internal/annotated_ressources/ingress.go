@@ -3,6 +3,7 @@ package annotatedressources
 import (
 	"fmt"
 
+	gatusconfig "github.com/Jannik-Hm/Gatus-Operator/internal/gatus_config"
 	networkingv1 "k8s.io/api/networking/v1"
 )
 
@@ -53,3 +54,5 @@ func (obj *AnnotatedIngress) getTLSHosts() map[string]struct{} {
 	}
 	return tls_enabled_hosts
 }
+
+func (obj *AnnotatedIngress) GetEndpointConfigs() ([]*gatusconfig.GatusEndpointConfig, error)
