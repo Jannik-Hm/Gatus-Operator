@@ -285,6 +285,10 @@ func (r *InstanceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		return fmt.Errorf("Could not register HTTPRoute Indices: %s", err)
 	}
 
+	if err := r.registerAnnotationIndices(mgr, &gatewayv1.Gateway{}); err != nil {
+		return fmt.Errorf("Could not register Gateway Indices: %s", err)
+	}
+
 	// register gateway parent ref
 	if err := mgr.GetCache().IndexField(context.Background(), &gatewayv1.HTTPRoute{}, gatewayParentRefSpec, func(rawObj client.Object) []string {
 		route := rawObj.(*gatewayv1.HTTPRoute)
@@ -320,9 +324,28 @@ func (r *InstanceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 	// annotations
 	controller.
-		Watches(&networkingv1.Ingress{}, handler.EnqueueRequestsFromMapFunc(mapLabelsToInstances), builder.WithPredicates(predicate.GenerationChangedPredicate{})). // TODO: add flag for this watcher
-		Watches(&gatewayv1.HTTPRoute{}, handler.EnqueueRequestsFromMapFunc(mapLabelsToInstances), builder.WithPredicates(predicate.GenerationChangedPredicate{})).  // TODO: add flag for this watcher
-		Watches(&gatewayv1.Gateway{}, handler.EnqueueRequestsFromMapFunc(r.mapGatewayToInstances), builder.WithPredicates(predicate.GenerationChangedPredicate{}))  // TODO: add flag for this watcher
+		Watches(&networkingv1.Ingress{},
+			handler.EnqueueRequestsFromMapFunc(mapLabelsToInstances),
+			builder.WithPredicates(predicate.Or(
+				predicate.GenerationChangedPredicate{},
+				predicate.AnnotationChangedPredicate{},
+			)),
+		). // TODO: add flag for this watcher
+		Watches(
+			&gatewayv1.HTTPRoute{},
+			handler.EnqueueRequestsFromMapFunc(mapLabelsToInstances),
+			builder.WithPredicates(predicate.Or(
+				predicate.GenerationChangedPredicate{},
+				predicate.AnnotationChangedPredicate{},
+			)),
+		). // TODO: add flag for this watcher
+		Watches(&gatewayv1.Gateway{},
+			handler.EnqueueRequestsFromMapFunc(r.mapGatewayToInstances),
+			builder.WithPredicates(predicate.Or(
+				predicate.GenerationChangedPredicate{},
+				predicate.AnnotationChangedPredicate{},
+			)),
+		) // TODO: add flag for this watcher
 		// TODO: IngressClass?
 
 	return controller.Named("instance").
@@ -621,8 +644,8 @@ func (r *InstanceReconciler) generateConfigString(ctx context.Context, req ctrl.
 		gatus_config.Endpoints = append(gatus_config.Endpoints, *item.Spec.Config.ToGatusConfig())
 	}
 	for _, item := range annotated_ingresses.Items {
-		obj := annotatedressources.AnnotatedIngress(item)
-		cfgs, err := annotationsToGatusConfigs(&obj)
+		obj := annotatedressources.AnnotatedIngress{Ingress: item}
+		cfgs, err := obj.GetEndpointConfigs(*r.Config)
 		if err != nil {
 			log.Error(err, "Could not parse Ingress annotations")
 		}
@@ -638,7 +661,7 @@ func (r *InstanceReconciler) generateConfigString(ctx context.Context, req ctrl.
 		if err != nil {
 			log.Error(err, "Could not get parent Gateway spec")
 		}
-		cfgs, err := annotationsToGatusConfigs(route)
+		cfgs, err := route.GetEndpointConfigs(*r.Config)
 		if err != nil {
 			log.Error(err, "Could not parse HTTPRoute annotations")
 		}
@@ -805,52 +828,6 @@ func mapLabelsToInstances(ctx context.Context, obj client.Object) []reconcile.Re
 	}
 
 	return reconcile_requests
-}
-
-func annotationsToGatusConfigs(obj annotatedressources.AnnotatedRessource) ([]*gatusconfig.GatusEndpointConfig, error) {
-	annotations := obj.GetAnnotations()
-	var base_cfg gatusconfig.GatusEndpointConfig
-	if additionalConfigString, ok := annotations[configOverrideAnnotation]; ok {
-		err := yaml.Unmarshal([]byte(additionalConfigString), &base_cfg)
-		if err != nil {
-			return nil, fmt.Errorf("Could not parse override config annotation: %s", err)
-		}
-	} else {
-		base_cfg = gatusconfig.GatusEndpointConfig{}
-	}
-
-	urls, err := obj.GetURLs()
-	if err != nil {
-		return nil, fmt.Errorf("Could not generate URLs: %s", err)
-	}
-	configs := make([]*gatusconfig.GatusEndpointConfig, 0, len(urls))
-
-	for _, url := range urls {
-		cfg := base_cfg
-
-		cfg.URL = url
-
-		if len(cfg.Conditions) == 0 {
-			protocol, _, _ := strings.Cut(url, "://")
-			cfg.Conditions = obj.GetConditions(protocol)
-		}
-
-		if name, ok := annotations[nameAnnotation]; ok && name != "" {
-			cfg.Name = name
-		} else {
-			cfg.Name = obj.GetName()
-		}
-		// TODO: append unique string to name if len(urls) > 1
-
-		if group, ok := annotations[groupAnnotation]; ok {
-			cfg.Group = &group
-		} else {
-			cfg.Group = ptr.To(obj.GetNamespace())
-		}
-		configs = append(configs, &cfg)
-	}
-
-	return configs, nil
 }
 
 func (r *InstanceReconciler) mapGatewayToInstances(ctx context.Context, obj client.Object) []reconcile.Request {
