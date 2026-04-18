@@ -55,12 +55,20 @@ apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
   name: prod-web
+  annotations:
+    "gatus.io/group": "Prod"
 spec:
   gatewayClassName: cloud-provider-kind
   listeners:
   - protocol: HTTP
     port: 80
     name: prod-web-gw
+    allowedRoutes:
+      namespaces:
+        from: Same
+  - protocol: HTTPS
+    port: 443
+    name: prod-web-gw-https
     allowedRoutes:
       namespaces:
         from: Same
@@ -71,6 +79,7 @@ metadata:
   name: test-route
   annotations:
     "gatus.io/instances": "instance-sample"
+    "gatus.io/group": "Test"
 spec:
   parentRefs:
   - name: prod-web
