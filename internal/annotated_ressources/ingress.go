@@ -3,11 +3,14 @@ package annotatedressources
 import (
 	"fmt"
 
+	"github.com/Jannik-Hm/Gatus-Operator/internal/config"
 	gatusconfig "github.com/Jannik-Hm/Gatus-Operator/internal/gatus_config"
 	networkingv1 "k8s.io/api/networking/v1"
 )
 
-type AnnotatedIngress networkingv1.Ingress
+type AnnotatedIngress struct {
+	networkingv1.Ingress
+}
 
 func (obj *AnnotatedIngress) GetURLs() ([]string, error) {
 	urls := make([]string, 0)
@@ -55,4 +58,21 @@ func (obj *AnnotatedIngress) getTLSHosts() map[string]struct{} {
 	return tls_enabled_hosts
 }
 
-func (obj *AnnotatedIngress) GetEndpointConfigs() ([]*gatusconfig.GatusEndpointConfig, error)
+func (obj *AnnotatedIngress) GetEndpointConfigs(config config.Config) ([]*gatusconfig.GatusEndpointConfig, error) {
+	cfg, err := parseGatusAnnotations(obj)
+	if err != nil {
+		return nil, fmt.Errorf("Could not generate Ingress Endpoint config: %s", err)
+	}
+	urls, err := obj.GetURLs()
+	cfgs := make([]*gatusconfig.GatusEndpointConfig, 0, len(urls))
+	for _, url := range urls {
+		// TODO: make name unique
+		url_config := cfg.Clone()
+		url_config.URL = url
+
+		defaultConfig(url_config, obj)
+
+		cfgs = append(cfgs, url_config)
+	}
+	return cfgs, nil
+}
