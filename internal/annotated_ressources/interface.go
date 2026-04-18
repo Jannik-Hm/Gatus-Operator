@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/Jannik-Hm/Gatus-Operator/internal/config"
 	gatusconfig "github.com/Jannik-Hm/Gatus-Operator/internal/gatus_config"
 	"go.yaml.in/yaml/v2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -16,7 +17,26 @@ type AnnotatedRessource interface {
 	// TODO: add unique key that gets appended to endpoint name if more than one entry
 	GetURLs() ([]string, error)
 	GetConditions(protocol string) []string
-	GetEndpointConfigs() ([]*gatusconfig.GatusEndpointConfig, error)
+	GetEndpointConfigs(config config.Config) ([]*gatusconfig.GatusEndpointConfig, error)
+}
+
+func defaultConfig(cfg *gatusconfig.GatusEndpointConfig, obj AnnotatedRessource) error {
+	if len(cfg.Conditions) == 0 {
+		protocol, _, _ := strings.Cut(cfg.URL, "://")
+		cfg.Conditions = obj.GetConditions(protocol)
+		if len(cfg.Conditions) == 0 {
+			return fmt.Errorf("Generated 0 Conditions for Endpoint %s; This is the protocol: %s", cfg.Name, protocol)
+		}
+	}
+
+	if cfg.Name == "" {
+		cfg.Name = obj.GetName()
+	}
+	if cfg.Group == nil {
+		cfg.Group = ptr.To(obj.GetNamespace())
+	}
+
+	return nil
 }
 
 const (
@@ -55,6 +75,8 @@ func parseGatusAnnotations(obj client.Object) (*gatusconfig.GatusEndpointConfig,
 	if group, ok := annotations[groupAnnotation]; ok {
 		cfg.Group = &group
 	}
+
+	// TODO: add the rest of the annotations
 
 	return &cfg, nil
 }
