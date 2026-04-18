@@ -6,7 +6,8 @@ import (
 )
 
 type Config struct {
-	DefaultGatusImage string
+	DefaultGatusImage  string
+	ProtocolPreference []string
 }
 
 func Load() (*Config, error) {
@@ -17,6 +18,9 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("Missing env var for default gatus image (key DEFAULT_GATUS_IMAGE)")
 	}
 	result.DefaultGatusImage = default_image
+
+	// TODO: make this user editable
+	result.ProtocolPreference = []string{"https", "http", "tcp", "udp"}
 
 	return &result, nil
 }
