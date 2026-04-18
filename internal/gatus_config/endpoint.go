@@ -95,54 +95,87 @@ func (obj *GatusEndpointConfig) Clone() *GatusEndpointConfig {
 }
 
 func (obj *GatusEndpointConfig) Merge(configs ...*GatusEndpointConfig) *GatusEndpointConfig {
-	merged := obj.Clone()
-
-	dns_configs := make([]*GatusEndpointDNSConfig, 0)
-
-	for _, cfg := range configs {
-		merged.Enabled = FillIfNotValue(merged.Enabled, cfg.Enabled, nil)
-
-		merged.Name = FillIfNotValue(merged.Name, cfg.Name, "")
-
-		merged.Group = FillIfNotValue(merged.Group, cfg.Group, nil)
-
-		merged.URL = FillIfNotValue(merged.URL, cfg.URL, "")
-
-		merged.Method = FillIfNotValue(merged.Method, cfg.Method, nil)
-
-		merged.GraphQL = FillIfNotValue(merged.GraphQL, cfg.GraphQL, nil)
-
-		// merged.Conditions = FillIfNotValue(merged.GraphQL, cfg.GraphQL, nil)
-
-		merged.Interval = FillIfNotValue(merged.Interval, cfg.Interval, nil)
-
-		merged.Body = FillIfNotValue(merged.Body, cfg.Body, nil)
-
-		// merged.Headers = FillIfNotValue(merged.GraphQL, cfg.GraphQL, nil)
-
-		// merged.ExtraLabels = FillIfNotValue(merged.GraphQL, cfg.GraphQL, nil)
-
-		merged.AlwaysRun = FillIfNotValue(merged.AlwaysRun, cfg.AlwaysRun, nil)
-
-		// merged.Store = FillIfNotValue(merged.GraphQL, cfg.GraphQL, nil)
-
-		// merged.Alerts = FillIfNotValue(merged.GraphQL, cfg.GraphQL, nil)
-
-		// merged.MaintenanceWindows = FillIfNotValue(merged.GraphQL, cfg.GraphQL, nil)
-
-		dns_configs = append(dns_configs, cfg.DNS)
-		merged.DNS = FillIfNotValue(merged.DNS, cfg.DNS, nil)
-
-		merged.SSH = FillIfNotValue(merged.SSH, cfg.SSH, nil)
-
-		merged.Client = FillIfNotValue(merged.Client, cfg.Client, nil)
-
-		merged.Ui = FillIfNotValue(merged.Ui, cfg.Ui, nil)
+	if obj == nil && len(configs) == 0 {
+		return nil
+	}
+	var merged *GatusEndpointConfig
+	if obj == nil && len(configs) > 0 {
+		merged = &GatusEndpointConfig{}
+	} else {
+		merged = obj.Clone()
 	}
 
-	merged.DNS = obj.DNS.Merge(dns_configs...)
+	alert_configs := make([]*GatusEndpointAlertConfig, 0)
+	ui_configs := make([]*GatusEndpointUiConfig, 0)
+
+	for _, cfg := range configs {
+		if cfg == nil {
+			continue
+		}
+
+		merged.Enabled = FillIfValue(merged.Enabled, cfg.Enabled, nil)
+
+		merged.Name = FillIfValue(merged.Name, cfg.Name, "")
+
+		merged.Group = FillIfValue(merged.Group, cfg.Group, nil)
+
+		merged.URL = FillIfValue(merged.URL, cfg.URL, "")
+
+		merged.Method = FillIfValue(merged.Method, cfg.Method, nil)
+
+		merged.GraphQL = FillIfValue(merged.GraphQL, cfg.GraphQL, nil)
+
+		MergeIntoListUnique(merged.Conditions, cfg.Conditions)
+
+		merged.Interval = FillIfValue(merged.Interval, cfg.Interval, nil)
+
+		merged.Body = FillIfValue(merged.Body, cfg.Body, nil)
+
+		MergeIntoMap(merged.Headers, cfg.Headers)
+
+		MergeIntoMap(merged.ExtraLabels, cfg.ExtraLabels)
+
+		merged.AlwaysRun = FillIfValue(merged.AlwaysRun, cfg.AlwaysRun, nil)
+
+		MergeIntoMap(merged.Store, cfg.Store)
+
+		for _, alert := range cfg.Alerts {
+			if alert != nil {
+				alert_configs = append(alert_configs, alert)
+			}
+		}
+
+		MergeIntoList(merged.MaintenanceWindows, cfg.MaintenanceWindows)
+
+		merged.DNS = FillIfValue(merged.DNS, cfg.DNS, nil)
+
+		merged.SSH = FillIfValue(merged.SSH, cfg.SSH, nil)
+
+		merged.Client = FillIfValue(merged.Client, cfg.Client, nil)
+
+		if cfg.Ui != nil {
+			ui_configs = append(ui_configs, cfg.Ui)
+		}
+	}
+
+	merged.Ui = merged.Ui.Merge(ui_configs...)
+
+	merged.mergeAlerts(alert_configs...)
 
 	return merged
+}
+
+func (obj *GatusEndpointConfig) mergeAlerts(configs ...*GatusEndpointAlertConfig) {
+	// TODO: improve this `uniqueness` detection to check for provider overrides (possibly include hash in key?)
+	alert_cfgs := map[string]*GatusEndpointAlertConfig{}
+	for _, alert_cfg := range obj.Alerts {
+		alert_cfgs[alert_cfg.Type] = alert_cfg
+	}
+	for _, alert_cfg := range configs {
+		if _, ok := alert_cfgs[alert_cfg.Type]; !ok {
+			alert_cfgs[alert_cfg.Type] = alert_cfg
+		}
+	}
 }
 
 type GatusEndpointDNSConfig struct {
@@ -158,10 +191,6 @@ func (obj *GatusEndpointDNSConfig) Clone() *GatusEndpointDNSConfig {
 		QueryType: clonePtr(obj.QueryType),
 		QueryName: clonePtr(obj.QueryName),
 	}
-}
-
-func (obj *GatusEndpointDNSConfig) Merge(dns_configs ...*GatusEndpointDNSConfig) *GatusEndpointDNSConfig {
-	panic("unimplemented")
 }
 
 type GatusEndpointSSHConfig struct {
@@ -204,6 +233,40 @@ func (obj *GatusEndpointUiConfig) Clone() *GatusEndpointUiConfig {
 		ResolveSuccessfulConditions: clonePtr(obj.ResolveSuccessfulConditions),
 		Badge:                       obj.Badge.Clone(),
 	}
+}
+
+func (obj *GatusEndpointUiConfig) Merge(configs ...*GatusEndpointUiConfig) *GatusEndpointUiConfig {
+	if obj == nil && len(configs) == 0 {
+		return nil
+	}
+	var merged *GatusEndpointUiConfig
+	if obj == nil && len(configs) > 0 {
+		merged = &GatusEndpointUiConfig{}
+	} else {
+		merged = obj.Clone()
+	}
+	for _, cfg := range configs {
+		if cfg == nil {
+			continue
+		}
+
+		merged.HideConditions = FillIfValue(merged.HideConditions, cfg.HideConditions, nil)
+
+		merged.HideHostname = FillIfValue(merged.HideHostname, cfg.HideHostname, nil)
+
+		merged.HidePort = FillIfValue(merged.HidePort, cfg.HidePort, nil)
+
+		merged.HideUrl = FillIfValue(merged.HideUrl, cfg.HideUrl, nil)
+
+		merged.HideErrors = FillIfValue(merged.HideErrors, cfg.HideErrors, nil)
+
+		merged.DontResolveFailedConditions = FillIfValue(merged.DontResolveFailedConditions, cfg.DontResolveFailedConditions, nil)
+
+		merged.ResolveSuccessfulConditions = FillIfValue(merged.ResolveSuccessfulConditions, cfg.ResolveSuccessfulConditions, nil)
+
+		merged.Badge = FillIfValue(merged.Badge, cfg.Badge, nil)
+	}
+	return merged
 }
 
 type GatusEndpointUiBadgeConfig struct {
