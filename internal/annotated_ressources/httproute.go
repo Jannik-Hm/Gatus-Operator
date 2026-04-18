@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/Jannik-Hm/Gatus-Operator/internal/config"
 	gatusconfig "github.com/Jannik-Hm/Gatus-Operator/internal/gatus_config"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -212,10 +213,22 @@ func (route_map HttpRouteMap) AddUnique(route *gatewayv1.HTTPRoute, gateways []*
 	}
 }
 
-func (obj *AnnotatedHTTPRoute) GetEndpointConfigs() ([]*gatusconfig.GatusEndpointConfig, error) {
-	urls := obj.getHostnames()
+// NOTE: single value fields (bools, strings) are set by first non nil (order is route -> gateway in order of parentRefs)
+// NOTE: merge behavior of multi value fields (maps, lists) can be configured (TODO: make this actually configurable)
+func (obj *AnnotatedHTTPRoute) GetEndpointConfigs(config config.Config) ([]*gatusconfig.GatusEndpointConfig, error) {
+	route_hostnames := obj.getHostnames()
 
-	url_config_map := map[string][]*gatusconfig.GatusEndpointConfig{}
+	hostname_config_map := map[string][]*gatusconfig.GatusEndpointConfig{}
+
+	// get different URLs and preferred protocol + merged config
+
+	route_config, err := parseGatusAnnotations(obj.HTTPRoute)
+
+	if err != nil {
+		return nil, fmt.Errorf("Unable to parse HTTPRoute Gatus annotations: %s", err)
+	}
+
+	protocols := map[string]struct{}{}
 
 	for _, parent_ref := range obj.Spec.ParentRefs {
 		gateway, listener_name := obj.getGateway(parent_ref)
@@ -223,31 +236,63 @@ func (obj *AnnotatedHTTPRoute) GetEndpointConfigs() ([]*gatusconfig.GatusEndpoin
 			continue
 		}
 		for _, listener := range gateway.Spec.Listeners {
-			listener_urls := urls
+			listener_hostnames := route_hostnames
 
-			if listener.Hostname != nil && (len(urls) == 0 || slices.Contains(listener_urls, string(*listener.Hostname))) {
-				listener_urls = []string{string(*listener.Hostname)}
+			if listener.Hostname != nil && (len(route_hostnames) == 0 || slices.Contains(listener_hostnames, string(*listener.Hostname))) {
+				listener_hostnames = []string{string(*listener.Hostname)}
 			}
 
+			protocol, err := getGatewayProtocolType(listener.Protocol)
+			if err != nil {
+				return nil, fmt.Errorf("Could not get correct protocol type for route: %s", err)
+			}
+			protocols[protocol] = struct{}{}
+
 			if listener_name == nil || listener.Name == *listener_name {
-				for _, url := range listener_urls {
-					// TODO: this url is not assembled fully yet (missing protocol and paths)
-					if _, ok := url_config_map[url]; !ok {
-						url_config_map[url] = make([]*gatusconfig.GatusEndpointConfig, 0)
+				for _, hostname := range listener_hostnames {
+					if _, ok := hostname_config_map[hostname]; !ok {
+						hostname_config_map[hostname] = []*gatusconfig.GatusEndpointConfig{}
 					}
 					parsed_config, err := parseGatusAnnotations(gateway)
 					if err != nil {
-						return nil, fmt.Errorf("Unable to parse Gatus annotations: %s", err)
+						return nil, fmt.Errorf("Unable to parse Gateway Gatus annotations: %s", err)
 					}
-					url_config_map[url] = append(url_config_map[url], parsed_config)
+					if parsed_config != nil {
+						parsed_config.URL = hostname
+						hostname_config_map[hostname] = append(hostname_config_map[hostname], parsed_config)
+					}
 				}
 			}
 		}
 	}
+
+	var protocol string
+	for _, preferred_protocol := range config.ProtocolPreference {
+		if _, ok := protocols[preferred_protocol]; ok {
+			protocol = preferred_protocol
+		}
+	}
+	if protocol == "" {
+		return nil, fmt.Errorf("Preferred Protocols list does not contain Route Protocol")
+	}
+
+	paths := obj.getPaths()
 	configs := make([]*gatusconfig.GatusEndpointConfig, 0)
-	for url, cfg := range url_config_map {
-		// TODO: merge cfgs and append to `configs`
-		_, _ = url, cfg
+	for _, cfgs := range hostname_config_map {
+		merged_cfg := route_config.Merge(cfgs...)
+		for path := range paths {
+			cfg := merged_cfg.Clone()
+			// TODO: make name unique
+			cfg.URL = protocol + "://" + cfg.URL + path
+
+			err := defaultConfig(cfg, obj)
+
+			if err != nil {
+				return nil, err
+			}
+
+			configs = append(configs, cfg)
+		}
 	}
 	return configs, nil
 }
