@@ -66,11 +66,20 @@ func (obj *AnnotatedIngress) GetEndpointConfigs(config config.Config) ([]*gatusc
 	urls, err := obj.GetURLs()
 	cfgs := make([]*gatusconfig.GatusEndpointConfig, 0, len(urls))
 	for _, url := range urls {
-		// TODO: make name unique
 		url_config := cfg.Clone()
+
 		url_config.URL = url
 
 		defaultConfig(url_config, obj)
+
+		// make name unique using hostname and path
+		if len(urls) > 1 {
+			host_path, err := getHostnameAndPathFromUrl(url)
+			if err != nil {
+				return nil, fmt.Errorf("Could not generate unique Ingress Endpoint name: %w", err)
+			}
+			url_config.Name = url_config.Name + " - " + host_path
+		}
 
 		cfgs = append(cfgs, url_config)
 	}

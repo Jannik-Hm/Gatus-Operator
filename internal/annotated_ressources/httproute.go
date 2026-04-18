@@ -215,6 +215,7 @@ func (route_map HttpRouteMap) AddUnique(route *gatewayv1.HTTPRoute, gateways []*
 
 // NOTE: single value fields (bools, strings) are set by first non nil (order is route -> gateway in order of parentRefs)
 // NOTE: merge behavior of multi value fields (maps, lists) can be configured (TODO: make this actually configurable)
+// TODO: add ability to toggle wether to create one endpoint per detected hostname or pick first
 func (obj *AnnotatedHTTPRoute) GetEndpointConfigs(config config.Config) ([]*gatusconfig.GatusEndpointConfig, error) {
 	route_hostnames := obj.getHostnames()
 
@@ -266,26 +267,31 @@ func (obj *AnnotatedHTTPRoute) GetEndpointConfigs(config config.Config) ([]*gatu
 		}
 	}
 
-	var protocol string
-	for _, preferred_protocol := range config.ProtocolPreference {
-		if _, ok := protocols[preferred_protocol]; ok {
-			protocol = preferred_protocol
-		}
-	}
-	if protocol == "" {
-		return nil, fmt.Errorf("Preferred Protocols list does not contain Route Protocol")
+	protocol, err := getPreferredProtocol(config, protocols)
+	if err != nil {
+		return nil, fmt.Errorf("Could not get preferred Protocol for HTTPRoute: %s", err)
 	}
 
 	paths := obj.getPaths()
 	configs := make([]*gatusconfig.GatusEndpointConfig, 0)
-	for _, cfgs := range hostname_config_map {
+	for hostname, cfgs := range hostname_config_map {
 		merged_cfg := route_config.Merge(cfgs...)
+
 		for path := range paths {
 			cfg := merged_cfg.Clone()
-			// TODO: make name unique
+
 			cfg.URL = protocol + "://" + cfg.URL + path
 
 			err := defaultConfig(cfg, obj)
+
+			// make name unique if multiple Hostnames exist for the same httproute and therefore name
+			if len(hostname_config_map) > 1 {
+				merged_cfg.Name = merged_cfg.Name + " - " + hostname
+			}
+			// make name unique if multiple Protocols exist for the same httproute and therefore name
+			if len(paths) > 1 {
+				cfg.Name = cfg.Name + " - " + path
+			}
 
 			if err != nil {
 				return nil, err

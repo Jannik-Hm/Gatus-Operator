@@ -730,17 +730,11 @@ func mutateConfig(instance *gatusiov1alpha1.Instance, obj *corev1.ConfigMap, sch
 const (
 	annotationPrefix string = ".metadata.annotations."
 
-	disabledAnnotation       string = "gatus.io/disabled"
-	nameAnnotation           string = "gatus.io/name"
-	instancesAnnotation      string = "gatus.io/instances"
-	groupAnnotation          string = "gatus.io/group"
-	configOverrideAnnotation string = "gatus.io/config"
-
-	disabledAnnotationWithPrefix       string = annotationPrefix + disabledAnnotation
-	nameAnnotationWithPrefix           string = annotationPrefix + nameAnnotation
-	instancesAnnotationWithPrefix      string = annotationPrefix + instancesAnnotation
-	groupAnnotationWithPrefix          string = annotationPrefix + groupAnnotation
-	configOverrideAnnotationWithPrefix string = annotationPrefix + configOverrideAnnotation
+	disabledAnnotationWithPrefix       string = annotationPrefix + annotatedressources.DisabledAnnotation
+	nameAnnotationWithPrefix           string = annotationPrefix + annotatedressources.NameAnnotation
+	instancesAnnotationWithPrefix      string = annotationPrefix + annotatedressources.InstancesAnnotation
+	groupAnnotationWithPrefix          string = annotationPrefix + annotatedressources.GroupAnnotation
+	configOverrideAnnotationWithPrefix string = annotationPrefix + annotatedressources.ConfigOverrideAnnotation
 
 	gatewayParentRefSpec string = "gatewayParentRef"
 )
@@ -759,7 +753,7 @@ func (r *InstanceReconciler) registerAnnotationIndices(mgr ctrl.Manager, obj cli
 	}
 	if err := mgr.GetFieldIndexer().IndexField(context.Background(), obj, disabledAnnotationWithPrefix, func(rawObj client.Object) []string {
 		annotations := rawObj.GetAnnotations()
-		disabled, ok := annotations[disabledAnnotation]
+		disabled, ok := annotations[annotatedressources.DisabledAnnotation]
 
 		disabled = strings.ToLower(disabled)
 		if !ok || disabled != "true" {
@@ -774,8 +768,8 @@ func (r *InstanceReconciler) registerAnnotationIndices(mgr ctrl.Manager, obj cli
 
 func parseInstancesAnnotation(obj client.Object) []client.ObjectKey {
 	annotations := obj.GetAnnotations()
-	instances, ok := annotations[instancesAnnotation]
-	disabled := annotations[disabledAnnotation]
+	instances, ok := annotations[annotatedressources.InstancesAnnotation]
+	disabled := annotations[annotatedressources.DisabledAnnotation]
 	if !ok || instances == "" || disabled == "true" {
 		return nil
 	}
