@@ -74,16 +74,12 @@ func parseGatusAnnotations(obj client.Object) (*gatusconfig.GatusEndpointConfig,
 }
 
 func getPreferredProtocol(config config.Config, protocols map[string]struct{}) (string, error) {
-	var protocol string
 	for _, preferred_protocol := range config.ProtocolPreference {
 		if _, ok := protocols[preferred_protocol]; ok {
-			protocol = preferred_protocol
+			return preferred_protocol, nil
 		}
 	}
-	if protocol == "" {
-		return "", fmt.Errorf("Preferred Protocols list does not contain detected protocols")
-	}
-	return protocol, nil
+	return "", fmt.Errorf("Preferred Protocols list does not contain detected protocols")
 }
 
 var hostname_path_regex = regexp.MustCompile(`^(?:[a-zA-Z0-9+-.]+:\/\/)?(?:[^@\n]+@)?(.*[\n?]+)`)
