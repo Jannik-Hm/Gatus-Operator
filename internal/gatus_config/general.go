@@ -23,3 +23,14 @@ func listClone[Source Cloner[Source]](list []Source) []Source {
 	}
 	return result
 }
+
+type Merger[T any] interface {
+	Merge(...T) T
+}
+
+func FillIfNotValue[T comparable](existing T, fallback T, zero T) T {
+	if existing == zero {
+		return fallback
+	}
+	return existing
+}
