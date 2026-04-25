@@ -15,7 +15,6 @@ import (
 
 type AnnotatedRessource interface {
 	metav1.Object
-	// TODO: add unique key that gets appended to endpoint name if more than one entry
 	GetURLs() ([]string, error)
 	GetConditions(protocol string) []string
 	GetEndpointConfigs(config config.Config) ([]*gatusconfig.GatusEndpointConfig, error)

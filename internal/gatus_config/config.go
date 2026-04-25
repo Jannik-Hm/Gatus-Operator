@@ -12,11 +12,11 @@ type Config struct {
 	// +kubebuilder:pruning:PreserveUnknownFields
 	Alerting *runtime.RawExtension `json:"alerting,omitempty"`
 
-	Announcements []GatusAnnouncementConfig `json:"announcements,omitempty"` // TODO: custom CRD
+	Announcements []GatusAnnouncementConfig `json:"announcements,omitempty"`
 
-	Endpoints []GatusEndpointConfig `json:"endpoints,omitempty"` // TODO: custom CRD
+	Endpoints []GatusEndpointConfig `json:"endpoints,omitempty"`
 
-	ExternalEndpoints []GatusExternalEndpointConfig `json:"external-endpoints,omitempty"` // TODO: custom CRD
+	ExternalEndpoints []GatusExternalEndpointConfig `json:"external-endpoints,omitempty"`
 
 	Security *GatusSecurityConfig `json:"security,omitempty"`
 
@@ -32,7 +32,7 @@ type Config struct {
 
 	Maintenance *GatusMaintenanceConfig `json:"maintenance,omitempty"`
 
-	Suites []GatusSuiteConfig `json:"suites,omitempty"` // TODO: custom CRD
+	Suites []GatusSuiteConfig `json:"suites,omitempty"`
 
 	Tunneling map[string]GatusTunnelingConfig `json:"tunnel,omitempty"` // omit for now, as this is likely not required in a kubernetes setup. If requested, add implementation
 

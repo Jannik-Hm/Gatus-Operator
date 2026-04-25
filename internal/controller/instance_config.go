@@ -62,8 +62,6 @@ func (r *InstanceReconciler) generateConfigString(ctx context.Context, req ctrl.
 		log.Error(err, "unable to list suits")
 	}
 
-	// TODO: add fetchers for ingressClass
-
 	ingresses, err := r.getAnnotatedIngresses(ctx, req)
 
 	if err != nil {
@@ -287,7 +285,7 @@ func (r *InstanceReconciler) mapGatewayToInstances(ctx context.Context, obj clie
 
 	// find all routes referencing this Gateway
 	routeList := &gatewayv1.HTTPRouteList{}
-	err := r.List(ctx, routeList, client.MatchingFields{gatewayParentRefSpec: fmt.Sprintf("%s/%s", gateway.Namespace, gateway.Name), disabledAnnotationWithPrefix: "false"}) //TODO: annotation key const + index
+	err := r.List(ctx, routeList, client.MatchingFields{gatewayParentRefSpec: fmt.Sprintf("%s/%s", gateway.Namespace, gateway.Name), disabledAnnotationWithPrefix: "false"})
 	if err != nil {
 		return nil
 	}
