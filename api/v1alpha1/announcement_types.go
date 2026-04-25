@@ -19,6 +19,8 @@ package v1alpha1
 import (
 	gatusconfig "github.com/Jannik-Hm/Gatus-Operator/internal/gatus_config"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
@@ -113,12 +115,21 @@ type Announcement struct {
 	Status AnnouncementStatus `json:"status,omitzero"`
 }
 
-func (crd *Announcement) GetInstanceName() string {
-	return crd.Spec.Instance.Name
-}
+func (crd *Announcement) GetInstances() []client.ObjectKey {
+	instances := make([]client.ObjectKey, len(crd.Spec.Instances))
 
-func (crd *Announcement) GetInstanceNamespace() *string {
-	return crd.Spec.Instance.Namespace
+	for index, instance := range crd.Spec.Instances {
+		namespace := crd.GetNamespace()
+		if instance.Namespace != nil {
+			namespace = *instance.Namespace
+		}
+
+		instances[index] = types.NamespacedName{
+			Name:      instance.Name,
+			Namespace: namespace,
+		}
+	}
+	return instances
 }
 
 // +kubebuilder:object:root=true

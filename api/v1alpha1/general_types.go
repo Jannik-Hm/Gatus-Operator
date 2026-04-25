@@ -8,14 +8,13 @@ import (
 )
 
 const (
-	InstanceNameReferenceKey      string = ".spec.instance.name"
-	InstanceNamespaceReferenceKey string = ".spec.instance.namespace"
+	InstanceReferenceKey string = ".spec.instance"
 )
 
 type InstanceReference struct {
 	// The Gatus Instance that this Config should be applied to
 	// +required
-	Instance InstanceRefFields `json:"instance"`
+	Instances []InstanceRefFields `json:"instances"`
 }
 
 type InstanceRefFields struct {
@@ -31,30 +30,21 @@ type InstanceRefFields struct {
 // +kubebuilder:object:generate=false
 type InstanceReferencer interface {
 	client.Object
-	GetInstanceName() string
-	GetInstanceNamespace() *string
+	GetInstances() []client.ObjectKey
 }
 
 func MapRessourceToInstance(ctx context.Context, obj client.Object) []reconcile.Request {
 	ref, ok := obj.(InstanceReferencer)
-	if !ok || ref.GetInstanceName() == "" {
+	if !ok {
 		return nil
 	}
 
-	var namespace string
-	tmp_ns := ref.GetInstanceNamespace()
-	if tmp_ns != nil {
-		namespace = *tmp_ns
-	} else {
-		namespace = obj.GetNamespace()
+	instances := ref.GetInstances()
+	reconciles := make([]reconcile.Request, len(instances))
+	for index, instance := range instances {
+		reconciles[index] = reconcile.Request{
+			NamespacedName: instance,
+		}
 	}
-
-	return []reconcile.Request{
-		{
-			NamespacedName: client.ObjectKey{
-				Name:      ref.GetInstanceName(),
-				Namespace: namespace,
-			},
-		},
-	}
+	return reconciles
 }

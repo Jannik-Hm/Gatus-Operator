@@ -67,22 +67,24 @@ spec:
                 - message
                 - timestamp
                 type: object
-              instance:
+              instances:
                 description: The Gatus Instance that this Config should be applied
                   to
-                properties:
-                  name:
-                    description: Name of the Instance
-                    type: string
-                  namespace:
-                    description: Namespace of the Instance
-                    type: string
-                required:
-                - name
-                type: object
+                items:
+                  properties:
+                    name:
+                      description: Name of the Instance
+                      type: string
+                    namespace:
+                      description: Namespace of the Instance
+                      type: string
+                  required:
+                  - name
+                  type: object
+                type: array
             required:
             - config
-            - instance
+            - instances
             type: object
           status:
             description: status defines the observed state of Announcement

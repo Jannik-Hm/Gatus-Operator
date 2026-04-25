@@ -72,9 +72,9 @@ kind: Endpoint
 metadata:
   name: endpoint-sample
 spec:
-  instance:
-    name: instance-sample # required, name of the gatus instance to attach to
-    namespace: default # namespace of the instance, can be omitted if instance is in same namespace
+  instances: # list of instances this should be attached to
+    - name: instance-sample # required, name of the gatus instance to attach to
+      namespace: default # namespace of the instance, can be omitted if instance is in same namespace
   config:
     enabled: true # optional
     name: Test # required
@@ -116,9 +116,9 @@ kind: ExternalEndpoint
 metadata:
   name: externalendpoint-sample
 spec:
-  instance:
-    name: instance-sample # required, name of the gatus instance to attach to
-    namespace: default # namespace of the instance, can be omitted if instance is in same namespace
+  instances: # list of instances this should be attached to
+    - name: instance-sample # required, name of the gatus instance to attach to
+      namespace: default # namespace of the instance, can be omitted if instance is in same namespace
   config:
     enabled: true # optional
     name: Test # required
@@ -140,9 +140,9 @@ kind: Announcement
 metadata:
   name: announcement-sample
 spec:
-  instance:
-    name: instance-sample # required, name of the gatus instance to attach to
-    namespace: default # namespace of the instance, can be omitted if instance is in same namespace
+  instances: # list of instances this should be attached to
+    - name: instance-sample # required, name of the gatus instance to attach to
+      namespace: default # namespace of the instance, can be omitted if instance is in same namespace
   config:
     timestamp: 2025-11-07T14:00:00Z # required, UTC timestamp when the announcement was made (RFC3339 format)
     type: none # optional, defaults to `none`, one of outage;warning;information;operational;none
@@ -160,9 +160,9 @@ kind: Suite
 metadata:
   name: suite-sample
 spec:
-  instance:
-    name: instance-sample # required, name of the gatus instance to attach to
-    namespace: default # namespace of the instance, can be omitted if instance is in same namespace
+  instances: # list of instances this should be attached to
+    - name: instance-sample # required, name of the gatus instance to attach to
+      namespace: default # namespace of the instance, can be omitted if instance is in same namespace
   config:
     enabled: true # optional
     ...

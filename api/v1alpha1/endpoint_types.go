@@ -23,6 +23,8 @@ import (
 	gatusconfig "github.com/Jannik-Hm/Gatus-Operator/internal/gatus_config"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
@@ -357,12 +359,21 @@ type Endpoint struct {
 	Status EndpointStatus `json:"status,omitzero"`
 }
 
-func (crd *Endpoint) GetInstanceName() string {
-	return crd.Spec.Instance.Name
-}
+func (crd *Endpoint) GetInstances() []client.ObjectKey {
+	instances := make([]client.ObjectKey, len(crd.Spec.Instances))
 
-func (crd *Endpoint) GetInstanceNamespace() *string {
-	return crd.Spec.Instance.Namespace
+	for index, instance := range crd.Spec.Instances {
+		namespace := crd.GetNamespace()
+		if instance.Namespace != nil {
+			namespace = *instance.Namespace
+		}
+
+		instances[index] = types.NamespacedName{
+			Name:      instance.Name,
+			Namespace: namespace,
+		}
+	}
+	return instances
 }
 
 // +kubebuilder:object:root=true

@@ -35,10 +35,6 @@ type InstanceSpec struct {
 	// The following markers will use OpenAPI v3 schema to validate the value
 	// More info: https://book.kubebuilder.io/reference/markers/crd-validation.html
 
-	// Name of the Service created, defaults to instance name
-	// +optional
-	ServiceName *string `json:"serviceName,omitempty"`
-
 	// Number of Gatus Instance Replicas, defaults to 1
 	// Currently limiting to 1 replica max as gatus currently does not support HA
 	// +kubebuilder:default:=1

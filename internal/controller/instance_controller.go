@@ -422,21 +422,15 @@ func (r *InstanceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 func (r *InstanceReconciler) registerInstanceRefIndices(mgr ctrl.Manager, obj gatusiov1alpha1.InstanceReferencer) error {
-	if err := mgr.GetFieldIndexer().IndexField(context.Background(), obj, gatusiov1alpha1.InstanceNameReferenceKey, func(rawObj client.Object) []string {
+	if err := mgr.GetFieldIndexer().IndexField(context.Background(), obj, gatusiov1alpha1.InstanceReferenceKey, func(rawObj client.Object) []string {
 		// grab the endpoint object, extract the instance...
 		endpoint := rawObj.(gatusiov1alpha1.InstanceReferencer)
-		return []string{endpoint.GetInstanceName()}
-	}); err != nil {
-		return err
-	}
-	if err := mgr.GetFieldIndexer().IndexField(context.Background(), obj, gatusiov1alpha1.InstanceNamespaceReferenceKey, func(rawObj client.Object) []string {
-		// grab the endpoint object, extract the instance...
-		endpoint := rawObj.(gatusiov1alpha1.InstanceReferencer)
-		if endpoint.GetInstanceNamespace() != nil {
-			return []string{*endpoint.GetInstanceNamespace()}
+		instances := endpoint.GetInstances()
+		indices := make([]string, len(instances))
+		for index, instance := range instances {
+			indices[index] = instance.Namespace + "/" + instance.Name
 		}
-		// fallback to own namespace
-		return []string{endpoint.GetNamespace()}
+		return indices
 	}); err != nil {
 		return err
 	}

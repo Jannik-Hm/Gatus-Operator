@@ -6,9 +6,9 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
   name: endpoint-sample
 spec:
-  instance:
-    name: instance-sample
-    # namespace: default
+  instances:
+    - name: instance-sample
+      namespace: default
   config:
     name: Test
     url: http://test-service

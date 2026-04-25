@@ -29,8 +29,7 @@ func (r *InstanceReconciler) generateConfigString(ctx context.Context, req ctrl.
 	var endpoints gatusiov1alpha1.EndpointList
 	if err := r.List(ctx, &endpoints,
 		client.MatchingFields{
-			gatusiov1alpha1.InstanceNameReferenceKey:      req.Name,
-			gatusiov1alpha1.InstanceNamespaceReferenceKey: req.Namespace,
+			gatusiov1alpha1.InstanceReferenceKey: req.Namespace + "/" + req.Name,
 		},
 	); err != nil {
 		log.Error(err, "unable to list endpoints")
@@ -39,8 +38,7 @@ func (r *InstanceReconciler) generateConfigString(ctx context.Context, req ctrl.
 	var externalEndpoints gatusiov1alpha1.ExternalEndpointList
 	if err := r.List(ctx, &externalEndpoints,
 		client.MatchingFields{
-			gatusiov1alpha1.InstanceNameReferenceKey:      req.Name,
-			gatusiov1alpha1.InstanceNamespaceReferenceKey: req.Namespace,
+			gatusiov1alpha1.InstanceReferenceKey: req.Namespace + "/" + req.Name,
 		},
 	); err != nil {
 		log.Error(err, "unable to list externalEndpoints")
@@ -49,8 +47,7 @@ func (r *InstanceReconciler) generateConfigString(ctx context.Context, req ctrl.
 	var announcements gatusiov1alpha1.AnnouncementList
 	if err := r.List(ctx, &announcements,
 		client.MatchingFields{
-			gatusiov1alpha1.InstanceNameReferenceKey:      req.Name,
-			gatusiov1alpha1.InstanceNamespaceReferenceKey: req.Namespace,
+			gatusiov1alpha1.InstanceReferenceKey: req.Namespace + "/" + req.Name,
 		},
 	); err != nil {
 		log.Error(err, "unable to list announcements")
@@ -59,8 +56,7 @@ func (r *InstanceReconciler) generateConfigString(ctx context.Context, req ctrl.
 	var suites gatusiov1alpha1.SuiteList
 	if err := r.List(ctx, &suites,
 		client.MatchingFields{
-			gatusiov1alpha1.InstanceNameReferenceKey:      req.Name,
-			gatusiov1alpha1.InstanceNamespaceReferenceKey: req.Namespace,
+			gatusiov1alpha1.InstanceReferenceKey: req.Namespace + "/" + req.Name,
 		},
 	); err != nil {
 		log.Error(err, "unable to list suits")
