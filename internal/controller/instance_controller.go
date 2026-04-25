@@ -184,7 +184,7 @@ func (r *InstanceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		op, err = controllerutil.CreateOrUpdate(ctx, r.Client, correspondingService, func() error { return mutateService(&instance, correspondingService, r.Scheme) })
 
 		if err != nil {
-			log.Error(err, "Failed to create/update Deployment")
+			log.Error(err, "Failed to create/update Service")
 			return ctrl.Result{}, err
 		}
 
