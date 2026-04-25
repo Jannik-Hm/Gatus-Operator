@@ -6,8 +6,16 @@ import (
 )
 
 type Config struct {
-	DefaultGatusImage  string
+	// default oci image of gatus to use
+	DefaultGatusImage string
+
+	// preference order of protocols, defaults to "https">"http">"tcp">"udp"
 	ProtocolPreference []string
+
+	WatchIngresses      bool
+	WatchIngressClasses bool
+	WatchHTTPRoutes     bool
+	WatchGateways       bool
 }
 
 func Load() (*Config, error) {
@@ -21,6 +29,12 @@ func Load() (*Config, error) {
 
 	// TODO: make this user editable
 	result.ProtocolPreference = []string{"https", "http", "tcp", "udp"}
+
+	// TODO: make this user editable
+	result.WatchIngresses = true
+	result.WatchIngressClasses = true
+	result.WatchHTTPRoutes = true
+	result.WatchGateways = true
 
 	return &result, nil
 }
