@@ -35,10 +35,6 @@ type InstanceSpec struct {
 	// The following markers will use OpenAPI v3 schema to validate the value
 	// More info: https://book.kubebuilder.io/reference/markers/crd-validation.html
 
-	// Name of the Gatus Instance (should be unique) and is used for reference when e.g. creating announcements, monitors, etc.
-	// +required
-	Name string `json:"name"`
-
 	// Name of the Service created, defaults to instance name
 	// +optional
 	ServiceName *string `json:"serviceName,omitempty"`

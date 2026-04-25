@@ -6,8 +6,7 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
   name: instance-sample
 spec:
-  name: "Test-Gatus"
-  # image: "ghcr.io/twin/gatus:stable"
+  image: "ghcr.io/twin/gatus:stable"
   service:
     enable: true
     ipFamilyPolicy: "PreferDualStack"

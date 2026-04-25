@@ -230,10 +230,6 @@ spec:
                 description: Image to be used
                 pattern: ^([\w\.\-\/]+)(:[\w\.\-]+)?(@sha256:[a-fA-F0-0]{64})?$
                 type: string
-              name:
-                description: Name of the Gatus Instance (should be unique) and is
-                  used for reference when e.g. creating announcements, monitors, etc.
-                type: string
               replicas:
                 default: 1
                 description: |-
@@ -280,8 +276,6 @@ spec:
               serviceName:
                 description: Name of the Service created, defaults to instance name
                 type: string
-            required:
-            - name
             type: object
           status:
             description: status defines the observed state of Instance
