@@ -103,6 +103,23 @@ func (r *InstanceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, err
 	}
 
+	// clean up old configmaps
+	var config_maps corev1.ConfigMapList
+	if err := r.List(ctx, &config_maps, client.MatchingLabels(getInstanceLabels(&instance))); err != nil && !apierrors.IsNotFound(err) {
+		log.Error(err, "Failed to list existing config maps")
+		return ctrl.Result{}, err
+	}
+	if len(config_maps.Items) > 0 {
+		for _, config_map := range config_maps.Items {
+			if config_map.Annotations["config-hash"] != instance.Status.CurrentConfigmapHash && config_map.Annotations["config-hash"] != instance.Status.LastSuccessfulConfigmapHash {
+				if err := r.Delete(ctx, &config_map); err != nil {
+					log.Error(err, "Failed to remove old config map")
+					return ctrl.Result{}, err
+				}
+			}
+		}
+	}
+
 	// create/update config
 	configYaml, err := r.generateConfigString(ctx, req, &instance)
 
@@ -172,7 +189,7 @@ func (r *InstanceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 
 		if op != controllerutil.OperationResultNone {
-			log.Info("Deployment reconciled", "Operation", op)
+			log.Info("Service reconciled", "Operation", op)
 		}
 	} else {
 		var service corev1.Service
