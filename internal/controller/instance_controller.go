@@ -74,7 +74,7 @@ type InstanceReconciler struct {
 // +kubebuilder:rbac:groups=gatus.io,resources=suites/finalizers,verbs=update
 
 // +kubebuilder:rbac:groups="gateway.networking.k8s.io",resources=httproutes;gateways,verbs=get;list;watch
-// +kubebuilder:rbac:groups="networking.k8s.io",resources=ingresses,verbs=get;list;watch
+// +kubebuilder:rbac:groups="networking.k8s.io",resources=ingresses;ingressclasses,verbs=get;list;watch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -252,6 +252,10 @@ func (r *InstanceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	return ctrl.Result{}, nil
 }
 
+const (
+	ingressClassRef = "ingressClass"
+)
+
 // SetupWithManager sets up the controller with the Manager.
 func (r *InstanceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if err := r.registerInstanceRefIndices(mgr, &gatusiov1alpha1.Endpoint{}); err != nil {
@@ -270,34 +274,68 @@ func (r *InstanceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		return fmt.Errorf("Could not register Suite Indices: %s", err)
 	}
 
-	if err := r.registerAnnotationIndices(mgr, &networkingv1.Ingress{}); err != nil {
-		return fmt.Errorf("Could not register Ingress Indices: %s", err)
-	}
-
-	if err := r.registerAnnotationIndices(mgr, &gatewayv1.HTTPRoute{}); err != nil {
-		return fmt.Errorf("Could not register HTTPRoute Indices: %s", err)
-	}
-
-	if err := r.registerAnnotationIndices(mgr, &gatewayv1.Gateway{}); err != nil {
-		return fmt.Errorf("Could not register Gateway Indices: %s", err)
-	}
-
-	// register gateway parent ref
-	if err := mgr.GetCache().IndexField(context.Background(), &gatewayv1.HTTPRoute{}, gatewayParentRefSpec, func(rawObj client.Object) []string {
-		route := rawObj.(*gatewayv1.HTTPRoute)
-		var gatewayNames []string
-		for _, ref := range route.Spec.ParentRefs {
-			if ref.Kind != nil && *ref.Kind == "Gateway" {
-				namespace := route.GetNamespace()
-				if ref.Namespace != nil {
-					namespace = string(*ref.Namespace)
-				}
-				gatewayNames = append(gatewayNames, fmt.Sprintf("%s/%s", namespace, ref.Name))
-			}
+	if r.Config.WatchIngresses {
+		if err := r.registerAnnotationIndices(mgr, &networkingv1.Ingress{}); err != nil {
+			return fmt.Errorf("Could not register Ingress Indices: %s", err)
 		}
-		return gatewayNames
-	}); err != nil {
-		return fmt.Errorf("Could not register Gateway Indices: %s", err)
+	}
+
+	if r.Config.WatchIngressClasses {
+		// NOTE: since IngressClasses do not have namespaces, instance namespace always needs to be specified in `instances` annotation
+		if err := r.registerAnnotationIndices(mgr, &networkingv1.IngressClass{}); err != nil {
+			return fmt.Errorf("Could not register IngressClass Indices: %s", err)
+		}
+	}
+
+	if r.Config.WatchIngressClasses {
+		// register ingress class ref
+		if err := mgr.GetCache().IndexField(context.Background(), &networkingv1.Ingress{}, ingressClassRef, func(rawObj client.Object) []string {
+			route := rawObj.(*networkingv1.Ingress)
+			var ingressClasses []string
+			if route.Spec.IngressClassName != nil {
+				ingressClasses = append(ingressClasses, *route.Spec.IngressClassName)
+			} else if _, ok := route.Annotations["kubernetes.io/ingress.class"]; ok {
+				ingressClasses = append(ingressClasses, route.Annotations["kubernetes.io/ingress.class"])
+			} else {
+				// empty string as default
+				ingressClasses = append(ingressClasses, "")
+			}
+			return ingressClasses
+		}); err != nil {
+			return fmt.Errorf("Could not register Ingress Parent Ref Indices: %s", err)
+		}
+	}
+
+	if r.Config.WatchHTTPRoutes {
+		if err := r.registerAnnotationIndices(mgr, &gatewayv1.HTTPRoute{}); err != nil {
+			return fmt.Errorf("Could not register HTTPRoute Indices: %s", err)
+		}
+	}
+
+	if r.Config.WatchGateways {
+		if err := r.registerAnnotationIndices(mgr, &gatewayv1.Gateway{}); err != nil {
+			return fmt.Errorf("Could not register Gateway Indices: %s", err)
+		}
+	}
+
+	if r.Config.WatchGateways {
+		// register gateway parent ref
+		if err := mgr.GetCache().IndexField(context.Background(), &gatewayv1.HTTPRoute{}, gatewayParentRefSpec, func(rawObj client.Object) []string {
+			route := rawObj.(*gatewayv1.HTTPRoute)
+			var gatewayNames []string
+			for _, ref := range route.Spec.ParentRefs {
+				if ref.Kind != nil && *ref.Kind == "Gateway" {
+					namespace := route.GetNamespace()
+					if ref.Namespace != nil {
+						namespace = string(*ref.Namespace)
+					}
+					gatewayNames = append(gatewayNames, fmt.Sprintf("%s/%s", namespace, ref.Name))
+				}
+			}
+			return gatewayNames
+		}); err != nil {
+			return fmt.Errorf("Could not register Gateway Parent Ref Indices: %s", err)
+		}
 	}
 
 	controller := ctrl.NewControllerManagedBy(mgr).
@@ -305,41 +343,54 @@ func (r *InstanceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 	// managed ressources
 	controller.Owns(&appsv1.Deployment{}).
-		Owns(&corev1.Service{}).
-		Owns(&corev1.ConfigMap{})
+		Owns(&corev1.Service{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		Owns(&corev1.ConfigMap{}, builder.WithPredicates(predicate.GenerationChangedPredicate{}))
 
 	// CRDs
 	controller.
-		Watches(&gatusiov1alpha1.Endpoint{}, handler.EnqueueRequestsFromMapFunc(gatusiov1alpha1.MapRessourceToInstance)).
-		Watches(&gatusiov1alpha1.ExternalEndpoint{}, handler.EnqueueRequestsFromMapFunc(gatusiov1alpha1.MapRessourceToInstance)).
-		Watches(&gatusiov1alpha1.Announcement{}, handler.EnqueueRequestsFromMapFunc(gatusiov1alpha1.MapRessourceToInstance)).
-		Watches(&gatusiov1alpha1.Suite{}, handler.EnqueueRequestsFromMapFunc(gatusiov1alpha1.MapRessourceToInstance))
+		Watches(&gatusiov1alpha1.Endpoint{}, handler.EnqueueRequestsFromMapFunc(gatusiov1alpha1.MapRessourceToInstance), builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		Watches(&gatusiov1alpha1.ExternalEndpoint{}, handler.EnqueueRequestsFromMapFunc(gatusiov1alpha1.MapRessourceToInstance), builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		Watches(&gatusiov1alpha1.Announcement{}, handler.EnqueueRequestsFromMapFunc(gatusiov1alpha1.MapRessourceToInstance), builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		Watches(&gatusiov1alpha1.Suite{}, handler.EnqueueRequestsFromMapFunc(gatusiov1alpha1.MapRessourceToInstance), builder.WithPredicates(predicate.GenerationChangedPredicate{}))
 
 	// annotations
-	controller.
-		Watches(&networkingv1.Ingress{},
+	if r.Config.WatchIngresses || r.Config.WatchIngressClasses {
+		controller.Watches(&networkingv1.Ingress{},
 			handler.EnqueueRequestsFromMapFunc(mapLabelsToInstances),
 			builder.WithPredicates(predicate.Or(
 				predicate.GenerationChangedPredicate{},
 				predicate.AnnotationChangedPredicate{},
 			)),
-		). // TODO: add flag for this watcher
-		Watches(
+		)
+	}
+	if r.Config.WatchIngressClasses {
+		controller.Watches(&networkingv1.IngressClass{},
+			handler.EnqueueRequestsFromMapFunc(mapLabelsToInstances),
+			builder.WithPredicates(predicate.Or(
+				predicate.GenerationChangedPredicate{},
+				predicate.AnnotationChangedPredicate{},
+			)),
+		)
+	}
+	if r.Config.WatchHTTPRoutes {
+		controller.Watches(
 			&gatewayv1.HTTPRoute{},
 			handler.EnqueueRequestsFromMapFunc(mapLabelsToInstances),
 			builder.WithPredicates(predicate.Or(
 				predicate.GenerationChangedPredicate{},
 				predicate.AnnotationChangedPredicate{},
 			)),
-		). // TODO: add flag for this watcher
-		Watches(&gatewayv1.Gateway{},
+		)
+	}
+	if r.Config.WatchGateways {
+		controller.Watches(&gatewayv1.Gateway{},
 			handler.EnqueueRequestsFromMapFunc(r.mapGatewayToInstances),
 			builder.WithPredicates(predicate.Or(
 				predicate.GenerationChangedPredicate{},
 				predicate.AnnotationChangedPredicate{},
 			)),
-		) // TODO: add flag for this watcher
-		// TODO: IngressClass?
+		)
+	}
 
 	return controller.Named("instance").
 		Complete(r)

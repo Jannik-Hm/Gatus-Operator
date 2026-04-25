@@ -9,9 +9,7 @@ import (
 
 	annotatedressources "github.com/Jannik-Hm/Gatus-Operator/internal/annotated_ressources"
 	gatusconfig "github.com/Jannik-Hm/Gatus-Operator/internal/gatus_config"
-	"go.yaml.in/yaml/v2"
 	corev1 "k8s.io/api/core/v1"
-	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -20,6 +18,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
+	"sigs.k8s.io/yaml"
 
 	gatusiov1alpha1 "github.com/Jannik-Hm/Gatus-Operator/api/v1alpha1"
 )
@@ -69,56 +68,16 @@ func (r *InstanceReconciler) generateConfigString(ctx context.Context, req ctrl.
 
 	// TODO: add fetchers for ingressClass
 
-	var annotated_ingresses networkingv1.IngressList
-	if err := r.List(ctx, &annotated_ingresses,
-		client.MatchingFields{
-			instancesAnnotationWithPrefix: req.Namespace + "/" + req.Name,
-			disabledAnnotationWithPrefix:  "false",
-		},
-	); err != nil {
-		log.Error(err, "unable to list directly annotated Ingresses")
+	ingresses, err := r.getAnnotatedIngresses(ctx, req)
+
+	if err != nil {
+		log.Error(err, "unable to build config")
 	}
 
-	http_routes := annotatedressources.HttpRouteMap{}
+	http_routes, err := r.getAnnotatedHTTPRoutes(ctx, req)
 
-	var annotated_http_routes gatewayv1.HTTPRouteList
-	if err := r.List(ctx, &annotated_http_routes,
-		client.MatchingFields{
-			instancesAnnotationWithPrefix: req.Namespace + "/" + req.Name,
-			disabledAnnotationWithPrefix:  "false",
-		},
-	); err != nil {
-		log.Error(err, "unable to list directly annotated HTTProutes")
-	}
-
-	for _, route := range annotated_http_routes.Items {
-		http_routes.AddUnique(&route, nil)
-	}
-
-	var annotated_gateways gatewayv1.GatewayList
-	if err := r.List(ctx, &annotated_gateways,
-		client.MatchingFields{
-			instancesAnnotationWithPrefix: req.Namespace + "/" + req.Name,
-			disabledAnnotationWithPrefix:  "false",
-		},
-	); err != nil {
-		log.Error(err, "unable to list directly annotated Gateways")
-	}
-
-	// get routes attached to annotated gateways
-	for _, gateway := range annotated_gateways.Items {
-		var attached_routes gatewayv1.HTTPRouteList
-		if err := r.List(ctx, &attached_routes,
-			client.MatchingFields{
-				gatewayParentRefSpec:         fmt.Sprintf("%s/%s", gateway.Namespace, gateway.Name),
-				disabledAnnotationWithPrefix: "false",
-			},
-		); err != nil {
-			log.Error(err, "unable to list indirectly annotated HTTProutes")
-		}
-		for _, route := range attached_routes.Items {
-			http_routes.AddUnique(&route, []*gatewayv1.Gateway{&gateway})
-		}
+	if err != nil {
+		log.Error(err, "unable to build config")
 	}
 
 	gatus_config := gatusconfig.Config{
@@ -135,13 +94,12 @@ func (r *InstanceReconciler) generateConfigString(ctx context.Context, req ctrl.
 
 	// TODO: sort lists
 
-	gatus_config.Endpoints = make([]gatusconfig.GatusEndpointConfig, 0, len(endpoints.Items)+len(annotated_ingresses.Items)+len(http_routes))
+	gatus_config.Endpoints = make([]gatusconfig.GatusEndpointConfig, 0, len(endpoints.Items)) // pre-allocate to ensured amount
 	for _, item := range endpoints.Items {
 		gatus_config.Endpoints = append(gatus_config.Endpoints, *item.Spec.Config.ToGatusConfig())
 	}
-	for _, item := range annotated_ingresses.Items {
-		obj := annotatedressources.AnnotatedIngress{Ingress: item}
-		cfgs, err := obj.GetEndpointConfigs(*r.Config)
+	for _, ingress := range ingresses {
+		cfgs, err := ingress.GetEndpointConfigs(*r.Config)
 		if err != nil {
 			log.Error(err, "Could not parse Ingress annotations")
 		}

@@ -9,7 +9,8 @@ import (
 )
 
 type AnnotatedIngress struct {
-	networkingv1.Ingress
+	*networkingv1.Ingress
+	IngressClass *networkingv1.IngressClass
 }
 
 func (obj *AnnotatedIngress) GetURLs() ([]string, error) {
@@ -84,4 +85,21 @@ func (obj *AnnotatedIngress) GetEndpointConfigs(config config.Config) ([]*gatusc
 		cfgs = append(cfgs, url_config)
 	}
 	return cfgs, nil
+}
+
+type IngressMap map[string]*AnnotatedIngress
+
+// adds ingress to IngressMap
+// if route exists, it adds the gateway to the annotated routes gateways
+func (ingress_map IngressMap) AddUnique(ingress *networkingv1.Ingress, ingressClass *networkingv1.IngressClass) {
+	if _, ok := ingress_map[ingress.Namespace+"/"+ingress.Name]; !ok {
+		ingress_map[ingress.Namespace+"/"+ingress.Name] = &AnnotatedIngress{
+			Ingress:      ingress,
+			IngressClass: ingressClass,
+		}
+	}
+
+	if ingressClass != nil && ingress_map[ingress.Namespace+"/"+ingress.Name].IngressClass == nil {
+		ingress_map[ingress.Namespace+"/"+ingress.Name].IngressClass = ingressClass
+	}
 }
