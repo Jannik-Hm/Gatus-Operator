@@ -190,58 +190,66 @@ func (r *InstanceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	var currentDeploy appsv1.Deployment
-	if err := r.Get(ctx, req.NamespacedName, &currentDeploy); err == nil {
-		instance.Status.Replicas = currentDeploy.Status.ReadyReplicas
+	err = r.Get(ctx, req.NamespacedName, &instance)
+	if err != nil {
+		log.Error(err, "Failed to re-get Instance")
+		return ctrl.Result{}, err
+	}
+	err = r.Get(ctx, req.NamespacedName, &currentDeploy)
+	if err != nil {
+		log.Error(err, "Failed to re-get deployment")
+		return ctrl.Result{}, err
+	}
 
-		instance.Status.DeploymentName = new(string)
-		*instance.Status.DeploymentName = currentDeploy.Name
+	instance.Status.Replicas = currentDeploy.Status.ReadyReplicas
 
-		instance.Status.CurrentConfigmapHash = fmt.Sprintf("%x", hash)
+	instance.Status.DeploymentName = new(string)
+	*instance.Status.DeploymentName = currentDeploy.Name
 
-		// Update "Available" condition based on deployment status
-		conditionStatus := metav1.ConditionFalse
-		reason := "DeploymentProgressing"
-		instanceStatus := "Pending"
-		var configUpdateSucceeded *bool
-		if currentDeploy.Status.UpdatedReplicas > 0 && currentDeploy.Status.UpdatedReplicas == currentDeploy.Status.AvailableReplicas {
-			conditionStatus = metav1.ConditionTrue
-			reason = "DeploymentReady"
-			instance.Status.LastSuccessfulConfigmapHash = fmt.Sprintf("%x", hash)
-			configUpdateSucceeded = ptr.To(true)
-			instanceStatus = "Running"
-		} else {
-			for _, condition := range currentDeploy.Status.Conditions {
-				if condition.Type == appsv1.DeploymentProgressing && condition.Status == corev1.ConditionFalse {
-					if condition.Reason == "ProgressDeadlineExceeded" {
-						log.Info("Deployment rollout failed: ProgressDeadlineExceeded")
-						configUpdateSucceeded = ptr.To(false)
-						reason = "DeploymentRolloutFailed"
-						instanceStatus = "Failed"
-						// TODO: rollback deployment
-					}
+	instance.Status.CurrentConfigmapHash = fmt.Sprintf("%x", hash)
+
+	// Update "Available" condition based on deployment status
+	conditionStatus := metav1.ConditionFalse
+	reason := "DeploymentProgressing"
+	instanceStatus := "Pending"
+	var configUpdateSucceeded *bool
+	if currentDeploy.Status.UpdatedReplicas > 0 && currentDeploy.Status.UpdatedReplicas == currentDeploy.Status.AvailableReplicas {
+		conditionStatus = metav1.ConditionTrue
+		reason = "DeploymentReady"
+		instance.Status.LastSuccessfulConfigmapHash = fmt.Sprintf("%x", hash)
+		configUpdateSucceeded = ptr.To(true)
+		instanceStatus = "Running"
+	} else {
+		for _, condition := range currentDeploy.Status.Conditions {
+			if condition.Type == appsv1.DeploymentProgressing && condition.Status == corev1.ConditionFalse {
+				if condition.Reason == "ProgressDeadlineExceeded" {
+					log.Info("Deployment rollout failed: ProgressDeadlineExceeded")
+					configUpdateSucceeded = ptr.To(false)
+					reason = "DeploymentRolloutFailed"
+					instanceStatus = "Failed"
 				}
 			}
 		}
+	}
 
-		instance.Status.Status = instanceStatus
+	instance.Status.Status = instanceStatus
 
-		if configUpdateSucceeded == nil || *configUpdateSucceeded {
-			meta.SetStatusCondition(&instance.Status.Conditions, metav1.Condition{
-				Type:               "Available",
-				Status:             conditionStatus,
-				Reason:             reason,
-				Message:            fmt.Sprintf("Deployment has %d ready replicas", currentDeploy.Status.ReadyReplicas),
-				ObservedGeneration: instance.Generation,
-			})
-		} else {
-			meta.SetStatusCondition(&instance.Status.Conditions, metav1.Condition{
-				Type:               "ConfigUpdateFailed",
-				Status:             conditionStatus,
-				Reason:             reason,
-				Message:            "Deployment update failed, likely an invalid config",
-				ObservedGeneration: instance.Generation,
-			})
-		}
+	if configUpdateSucceeded == nil || *configUpdateSucceeded {
+		meta.SetStatusCondition(&instance.Status.Conditions, metav1.Condition{
+			Type:               "Available",
+			Status:             conditionStatus,
+			Reason:             reason,
+			Message:            fmt.Sprintf("Deployment has %d ready replicas", currentDeploy.Status.ReadyReplicas),
+			ObservedGeneration: instance.Generation,
+		})
+	} else {
+		meta.SetStatusCondition(&instance.Status.Conditions, metav1.Condition{
+			Type:               "ConfigUpdateFailed",
+			Status:             conditionStatus,
+			Reason:             reason,
+			Message:            "Deployment update failed, likely an invalid config",
+			ObservedGeneration: instance.Generation,
+		})
 	}
 
 	if err := r.Status().Update(ctx, &instance); err != nil {
