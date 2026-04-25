@@ -7,10 +7,10 @@ import (
 
 	"github.com/Jannik-Hm/Gatus-Operator/internal/config"
 	gatusconfig "github.com/Jannik-Hm/Gatus-Operator/internal/gatus_config"
-	"go.yaml.in/yaml/v2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/yaml"
 )
 
 type AnnotatedRessource interface {
